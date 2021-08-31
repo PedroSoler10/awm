@@ -1,6 +1,0 @@
-<launch>
-  <arg name="slam_methods" default="gmapping" doc="slam type [gmapping, cartographer, hector, karto, frontier_exploration]"/>
-  <!-- rviz -->
-    <node pkg="rviz" type="rviz" name="rviz" required="true"
-          args="-d $(find turtlebot3_slam)/rviz/turtlebot3_$(arg slam_methods).rviz"/>
-</launch>
