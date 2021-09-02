@@ -29,7 +29,7 @@ class Brain
       // LOOP
       ros::Rate loop_rate(10);
       
-      while ( ros::ok())// && ( ( ros::Time::now().toSec() - timer.toSec() ) < 5 ) )
+      while ( ros::ok() && ( ( ros::Time::now().toSec() - timer.toSec() ) < 5 ) )
       {
         // STATE MACHINE
         control();
@@ -524,7 +524,7 @@ class Brain
     bool new_goal = false;
     int goal_status = false;
     bool measure_done = false;
-    bool debug = true;
+    bool debug = false;
 };
 
 int main(int argc, char **argv)
@@ -534,4 +534,5 @@ int main(int argc, char **argv)
   //ros::spin();
   return 0;
 }
+
 
