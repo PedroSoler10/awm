@@ -1,0 +1,18 @@
+<launch>
+
+  <!-- GAZEBO -->
+    <include file="$(find awm)/launch/world.launch"/>  
+    
+  <!-- BRING UP REMOTE -->
+    <include file="$(find awm)/launch/remote.launch"/>
+
+  <!-- SLAM -->
+    <include file="$(find awm)/launch/slam.launch"/>
+    
+  <!-- NAVIGATION -->
+    <include file="$(find awm)/launch/nav.launch"/>
+
+  <!-- RVIZ -->
+    <include file="$(find awm)/launch/rviz_nav.launch"/>
+
+</launch>

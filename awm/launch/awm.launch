@@ -1,0 +1,18 @@
+<launch>  
+    
+  <!-- BRING UP -->
+    <include file="$(find awm)/launch/robot.launch"/>
+    
+  <!-- SLAM -->
+    <include file="$(find awm)/launch/slam.launch"/>
+    
+  <!-- NAVIGATION -->
+    <include file="$(find awm)/launch/nav.launch"/>
+
+  <!-- RVIZ -->
+    <include file="$(find awm)/launch/rviz_nav.launch"/>
+    
+  <!-- AWM -->
+    <node pkg="awm" type="brain" name="brain" output="screen"/>  
+
+</launch>
