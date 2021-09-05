@@ -24,6 +24,7 @@ class Brain
       fnInit();
       ROS_INFO("INITIALIZATION DONE");
       fnWait(debug);
+      //ros::Duration(5).sleep();
       ROS_INFO("STARTING PROGRAM");
       ros::Time timer = ros::Time::now();
       // LOOP
@@ -116,6 +117,7 @@ class Brain
     // MAP //
     void mapCallback(const nav_msgs::OccupancyGrid msg)
     {
+      //ROS_INFO("MAP CALLBACK");
       fnReadScanPose(); 
       if (msg.info.width != map.info.width)
       {
@@ -419,6 +421,7 @@ class Brain
       if(sequence == 0)
       {
         ROS_INFO("WAITING");
+        //fnPrintPose(scan_pose.pose, "SCAN");
         if(scan_pose.header.stamp.sec == ros::Time::now().sec)
         {
           fnPrintPose(scan_pose.pose, "SCAN");

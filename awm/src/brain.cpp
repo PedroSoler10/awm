@@ -24,12 +24,13 @@ class Brain
       fnInit();
       ROS_INFO("INITIALIZATION DONE");
       fnWait(debug);
+      //ros::Duration(5).sleep();
       ROS_INFO("STARTING PROGRAM");
       ros::Time timer = ros::Time::now();
       // LOOP
       ros::Rate loop_rate(10);
       
-      while ( ros::ok() && ( ( ros::Time::now().toSec() - timer.toSec() ) < 5 ) )
+      while ( ros::ok())// && ( ( ros::Time::now().toSec() - timer.toSec() ) < 15 ) )
       {
         // STATE MACHINE
         control();
@@ -49,11 +50,11 @@ class Brain
       base_scan_pose.pose.orientation.y = 0;
       base_scan_pose.pose.orientation.z = 0;
       base_scan_pose.pose.orientation.w = 1;
-      scan_pose.header.frame_id = "map";
+      //scan_pose.header.frame_id = "base_scan";
       pub_scan_pose = n.advertise<geometry_msgs::PoseStamped>("/scan_pose", 100);
       
       // MAP //
-      sub_map = n.subscribe("/map", 10, &Brain::mapCallback, this);
+      sub_map = n.subscribe("/map", 100, &Brain::mapCallback, this);
       local_map.header.frame_id = "map";
       local_map.info.resolution = local_map_resolution;
       local_map.info.width = local_map_size+1;
@@ -98,7 +99,7 @@ class Brain
         fnWait(debug);
         //return;
       }
-      //fnPrintPose(scan_pose.pose,"SCAN POSE");
+      fnPrintPose(scan_pose.pose,"SCAN POSE");
     }
     void fnPrintPose(geometry_msgs::Pose p, const char* n)
     {
@@ -116,6 +117,7 @@ class Brain
     // MAP //
     void mapCallback(const nav_msgs::OccupancyGrid msg)
     {
+      //ROS_INFO("MAP CALLBACK");
       fnReadScanPose(); 
       if (msg.info.width != map.info.width)
       {
@@ -392,7 +394,7 @@ class Brain
       measure_map_file.open("measure_map.txt");
       if(measure_map_file.is_open())
       {
-        ROS_INFO("MAP FILE OPENED");
+        ROS_INFO("MEASURE MAP FILE OPENED");
         for(int j = measure_map.info.width-1; j >= 0; j--)
         {
           for(int i = measure_map.info.height-1; i >= 0; i--)
@@ -419,7 +421,10 @@ class Brain
       if(sequence == 0)
       {
         ROS_INFO("WAITING");
-        if(scan_pose.header.stamp.sec == ros::Time::now().sec)
+        //
+        //fnPrintPose(scan_pose.pose, "SCAN");
+        ROS_INFO("SCAN POSE HEADER FRAME ID: %s", scan_pose.header.frame_id.c_str());
+        if(scan_pose.header.frame_id == "map")
         {
           fnPrintPose(scan_pose.pose, "SCAN");
           mt = ros::Time::now();
@@ -534,5 +539,4 @@ int main(int argc, char **argv)
   //ros::spin();
   return 0;
 }
-
 
