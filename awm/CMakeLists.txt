@@ -141,6 +141,7 @@ add_executable(brain src/brain.cpp)
 add_executable(brainT src/brainT.cpp)
 add_executable(mapper src/mapper.cpp)
 add_executable(mapperT src/mapperT.cpp)
+add_executable(map_processing src/map_processing.cpp)
 ## Rename C++ executable without prefix
 ## The above recommended prefix causes long target names, the following renames the
 ## target back to the shorter version for ease of user use
@@ -153,6 +154,7 @@ add_dependencies(brain ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TAR
 add_dependencies(brainT ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 add_dependencies(mapper ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 add_dependencies(mapperT ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+add_dependencies(map_processing ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 ## Specify libraries to link a library or executable target against
 target_link_libraries(brain
   ${catkin_LIBRARIES}
@@ -164,6 +166,9 @@ target_link_libraries(mapper
   ${catkin_LIBRARIES}
 )
 target_link_libraries(mapperT
+  ${catkin_LIBRARIES}
+)
+target_link_libraries(map_processing
   ${catkin_LIBRARIES}
 )
 
