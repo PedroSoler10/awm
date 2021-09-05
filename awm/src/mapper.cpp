@@ -22,16 +22,17 @@ class Mapper
     {
       // INITIALIZATION
       fnInit();
-      ROS_INFO("INITIALIZATION DONE");
+      //ROS_INFO("INITIALIZATION DONE");
       fnWait(debug);
-      ROS_INFO("STARTING PROGRAM");
-      ros::Time timer = ros::Time::now();
+      //ROS_INFO("STARTING PROGRAM");
+      //ros::Time timer = ros::Time::now();
       // LOOP
       ros::Rate loop_rate(10);
       
       while ( ros::ok())// && ( ( ros::Time::now().toSec() - timer.toSec() ) < 5 ) )
       {
         // STATE MACHINE
+        //ROS_INFO("LOOP");
         ros::spinOnce();
         loop_rate.sleep();
       }
@@ -42,10 +43,8 @@ class Mapper
       // SCAN POSE
       buffer_.setUsingDedicatedThread(true);
       fnInitStampedPose(base_scan_pose, "base_scan");
-      fnPrintPose(base_scan_pose.pose, "BASE_SCAN_POSE");
       fnInitStampedPose(scan_pose, "map");
-      fnPrintPose(scan_pose.pose, "SCAN_POSE");
-      pub_scan_pose = n.advertise<geometry_msgs::PoseStamped>("/scan_pose", 1);
+      pub_scan_pose = n.advertise<geometry_msgs::PoseStamped>("/scan_pose", 10);
       
       // MAP //
       fnDeleteFile("map.txt");
@@ -53,11 +52,11 @@ class Mapper
       
       // SAVE MAP //
       fnDeleteFile("safe_map.txt");
-      pub_safe_map = n.advertise<nav_msgs::OccupancyGrid>("/safe_map", 1);
+      pub_safe_map = n.advertise<nav_msgs::OccupancyGrid>("/safe_map", 10);
       
       // MEASURE //
       fnDeleteFile("measure_map.txt");
-      pub_measure_map = n.advertise<nav_msgs::OccupancyGrid>("/measure_map", 1);
+      pub_measure_map = n.advertise<nav_msgs::OccupancyGrid>("/measure_map", 10);
     }
     
     void fnWait(bool d)
@@ -73,10 +72,8 @@ class Mapper
     void fnInitStampedPose(geometry_msgs::PoseStamped &p, const char* s)
     {
       p.header.frame_id = s;
-      ROS_INFO("%s", p.header.frame_id.c_str());
       p.header.stamp = ros::Time::now();
       fnInitPose(p.pose);
-      ROS_INFO("%f", p.pose.orientation.w);
     }
     
     void fnInitPose(geometry_msgs::Pose &p)
@@ -88,12 +85,21 @@ class Mapper
       p.orientation.y = 0;
       p.orientation.z = 0;
       p.orientation.w = 1;
-      ROS_INFO("%f", p.orientation.w);
+    }
+    
+    void fnPrintStampedPose(geometry_msgs::PoseStamped p, const char* s)
+    {
+      ROS_INFO("PRINT STAMPED POSE: %s \n\tFRAME_ID: %s \n\tSTAMP: \n\t\tsec: %d \n\t\tnsec: %d",
+          s,
+          p.header.frame_id.c_str(),
+          p.header.stamp.sec,
+          p.header.stamp.nsec);
+       fnPrintPose(p.pose, s);
     }
     
     void fnPrintPose(geometry_msgs::Pose p, const char* s)
     {
-      ROS_INFO("PRINT POSE:\n%s POSE:\nx:%f y:%f z:%f x:%f y:%f z:%f w:%f",
+      ROS_INFO("PRINT POSE: %s \nPOSE: \n\tPOSITION: \n\t\tx:%f \n\t\ty:%f \n\t\tz:%f \n\tORIENTATION: \n\t\tx:%f \n\t\ty:%f \n\t\tz:%f \n\t\tw:%f",
           s,
           p.position.x,
           p.position.y,
@@ -106,7 +112,7 @@ class Mapper
     
     void fnDeleteFile(const char* s)
     {
-      if (remove("map.txt") == 0)
+      if (remove(s) == 0)
         ROS_INFO("%s DELETED",s);
       else
         ROS_INFO("%s NOT DELETED",s);
@@ -119,10 +125,11 @@ class Mapper
       {
         buffer_.transform(base_scan_pose, scan_pose, "map");
         scan_pose.header.stamp = ros::Time::now();
+        //fnPrintStampedPose(scan_pose, "SCAN_POSE");
         pub_scan_pose.publish(scan_pose);
-        grid_x = round((scan_pose.pose.position.x - map.info.origin.position.x) / map.info.resolution);
-        grid_y = round((scan_pose.pose.position.y - map.info.origin.position.y) / map.info.resolution);
-        //ROS_INFO("READ SCAN POSE:\nGRID CELLS:\nx: %d y: %d",grid_x, grid_y);
+        //grid_x = round((scan_pose.pose.position.x - map.info.origin.position.x) / map.info.resolution);
+        //grid_y = round((scan_pose.pose.position.y - map.info.origin.position.y) / map.info.resolution);
+        //ROS_INFO("GRID CELLS:\nx: %d y: %d",grid_x, grid_y);
       }
       catch (tf2::TransformException &ex)
       {
@@ -137,23 +144,28 @@ class Mapper
     {
       // MAP //
       map = m;
-      fnReadScanPose();
-      if (new_map)
-      {
-        safe_map = map;
-        // MEASURE_MAP //
-        measure_map = map;
-        fnMapProcessing(map, measure_map);
-        fnWriteMap(measure_map, "measure_map.txt");
-        pub_measure_map.publish(measure_map);
-        new_map = false;
-      }
       fnWriteMap(map, "map.txt");
+      fnReadScanPose();
       
       // SAFE_MAP //
+      safe_map = map;
+      fnDiscretiseMap(map, safe_map);
       fnMapProcessing(map, safe_map);
       fnWriteMap(safe_map, "safe_map.txt");
       pub_safe_map.publish(safe_map);
+      
+      // MEASURE_MAP //
+      if (new_map)
+      {
+        measure_map = safe_map;
+        fnInitMeasureMap(safe_map, measure_map);
+        new_map = false;
+      }
+      fnUpdateMeasureMap(safe_map, measure_map);
+      fnWriteMap(measure_map, "measure_map.txt");
+      pub_measure_map.publish(measure_map);
+      measure_pose = scan_pose;
+      fnUpdateMeasurement(measure_pose.pose, measure_map);
     }
     
     void fnWriteMap(nav_msgs::OccupancyGrid m, const char* s)
@@ -164,34 +176,58 @@ class Mapper
       {
         for(int i = m.info.height-1; i >= 0; i--)
         {
-          if (m.data[i*map.info.width + j] == 100)
+          if (m.data[i*m.info.width + j] >= 90)
             m_f<<"*\t";
-          else if (m.data[i*map.info.width + j] == -1)
-            m_f<<"·\t";
-          else if (m.data[i*map.info.width + j] == 0)
+          else if (m.data[i*m.info.width + j] >= 50)
             m_f<<"+\t";
+          else if (m.data[i*m.info.width + j] == -1)
+            m_f<<"·\t";
+          else if (m.data[i*m.info.width + j] < 50)
+            m_f<<" \t";
         }
         m_f <<"\n";
       }
       m_f.close();
     }
     
+    // SAFE MAP //
+    void fnDiscretiseMap(nav_msgs::OccupancyGrid m, nav_msgs::OccupancyGrid &s_m)
+    {
+      for(int i = 0 ; i < m.info.height ; i++)
+      {
+        for(int j = 0 ; j < m.info.width; j++)
+        {
+          if (m.data[i*m.info.width + j] >= 90)
+            s_m.data[i*s_m.info.width + j] = 100; 
+          else if (m.data[i*m.info.width + j] >= 50)
+            s_m.data[i*s_m.info.width + j] = 50;
+          else if (m.data[i*m.info.width + j] >= 0)
+            s_m.data[i*s_m.info.width + j] = 0;
+          else
+            s_m.data[i*s_m.info.width + j] = -1;
+        }
+      }
+    }
+    
     // MAP PROCESSING //
-    void fnMapProcessing(nav_msgs::OccupancyGrid m_i, nav_msgs::OccupancyGrid m_o)
+    void fnMapProcessing(nav_msgs::OccupancyGrid m, nav_msgs::OccupancyGrid &p_m)
     {
       int radius = 6;
-      for(int i = 0 ; i < m_o.info.height ; i++)
+      for(int i = 0 ; i < p_m.info.height ; i++)
       {
-        for(int j = 0 ; j < m_o.info.width; j++)
+        for(int j = 0 ; j < p_m.info.width; j++)
         {
-          if (m_i.data[i*m_i.info.width + j] > 90)
+          if (m.data[i*m.info.width + j] >= 90)
           {
             for(int k = i-radius; k <= i+radius; k++)
             {
               for(int l = j-radius; l <= j+radius; l++)
               {
-                if((k > 0) && (k < m_o.info.height) && (l > 0) && (l < m_o.info.width))
-                  m_o.data[k*m_o.info.width + l] = 100;
+                if((k > 0) && (k < p_m.info.height) && (l > 0) && (l < p_m.info.width) && ((m.data[k*m.info.width + l] < 50)))
+                {
+                  p_m.data[k*p_m.info.width + l] = 50;
+                  //ROS_INFO("k: %d l: %d", k, l);
+                }
               }
             }
           }
@@ -214,7 +250,7 @@ class Mapper
         boost::posix_time::ptime my_posix_time = n.toBoost();
         std::string iso_time_str = boost::posix_time::to_iso_extended_string(my_posix_time);
         fnReadScanPose();
-        ROS_INFO("MEASURE DATA:\nx: %f y: %f z: %f t: %s", 
+        //ROS_INFO("MEASURE DATA:\nx: %f y: %f z: %f t: %s", 
           scan_pose.pose.position.x,
           scan_pose.pose.position.y,
           scan_pose.pose.position.z,
@@ -222,69 +258,74 @@ class Mapper
         fnUpdateMeasureMap();
         measure_done = true;
       }
-    }
-    void fnUpdateMeasureMap()
+    }*/
+    
+    void fnInitMeasureMap(nav_msgs::OccupancyGrid s_m, nav_msgs::OccupancyGrid &m_m)
     {
-      measure_map.header.stamp = ros::Time::now();
+      for(int i = 0 ; i < m_m.info.height ; i++)
+      {
+        for(int j = 0 ; j < m_m.info.width; j++)
+        {
+          if ((s_m.data[i*s_m.info.width + j] == -1) || (s_m.data[i*s_m.info.width + j] >= 90))
+            m_m.data[i*m_m.info.width + j] = 100; 
+          else if (s_m.data[i*s_m.info.width + j] >= 50)
+            m_m.data[i*m_m.info.width + j] = 50;
+          else
+            m_m.data[i*m_m.info.width + j] = -1;
+        }
+      }
+    }
+    
+    void fnUpdateMeasureMap(nav_msgs::OccupancyGrid s_m, nav_msgs::OccupancyGrid &m_m)
+    {
+      m_m.header.stamp = ros::Time::now();
+      for(int i = 0 ; i < m_m.info.height ; i++)
+      {
+        for(int j = 0 ; j < m_m.info.width; j++)
+        {
+          if ((s_m.data[i*s_m.info.width + j] == -1) && (s_m.data[i*s_m.info.width + j] > 90))
+              m_m.data[i*m_m.info.width + j] = 100;
+          else if (m_m.data[i*s_m.info.width + j] != 0)
+          {
+            if (s_m.data[i*s_m.info.width + j] < 50)
+              m_m.data[i*m_m.info.width + j] = -1;
+            else
+              m_m.data[i*m_m.info.width + j] = 50;
+          }
+        }
+      }
+    }
+    
+    void fnUpdateMeasurement(geometry_msgs::Pose m_p, nav_msgs::OccupancyGrid &m_m)
+    {
+      m_m.header.stamp = ros::Time::now();
       double distance;
       float measure_ratio = 0.5;
-      ROS_INFO("UPDATE MEASURE MAP");
-      if(measure_map.info.width != map.info.width)
+      float d;
+      int i;
+      int j;
+      int m_grid_x = round((m_p.position.x - m_m.info.origin.position.x) / m_m.info.resolution);
+      int m_grid_y = round((m_p.position.y - m_m.info.origin.position.y) / m_m.info.resolution);
+      //ROS_INFO("GRID CELLS:\nx: %d y: %d",m_grid_x, m_grid_y);
+        
+      for(int a = 0; a < 360; a++)
       {
-        if (remove("measure_map.txt") == 0)
-          ROS_INFO("OLD MEASURE MAP DELETED");
-        else
-          ROS_INFO("OLD MEASURE MAP NOT DELETED");
-        measure_map = map;
-        for(int i = 0 ; i < measure_map.info.height ; i++)
+        d=0.5;
+        distance = 0;
+        while (distance <= measure_ratio)
         {
-          for(int j = 0 ; j < measure_map.info.width; j++)
-          {
-            if ((map.data[i*map.info.width + j] == -1) || (map.data[i*map.info.width + j] > 90))
-              measure_map.data[i*measure_map.info.width + j] = 100;
-            else
-              measure_map.data[i*measure_map.info.width + j] = -1;
-          }
+          i = round(m_grid_y + d*sin(a*PI/180));
+          j = round(m_grid_x + d*cos(a*PI/180));
+          distance = sqrt(pow(m_grid_y-i,2)+pow(m_grid_x-j,2))*m_m.info.resolution;
+          //ROS_INFO("i: %d, j: %d, distance: %f", i, j, distance);
+          if ((i > 0) && (j > 0) && (i < m_m.info.height) && (j < m_m.info.width) && (m_m.data[i*m_m.info.width + j] < 90))
+            m_m.data[i*m_m.info.width + j] = 0;
+          else
+            distance = measure_ratio;
+          d+=1;
         }
       }
-      ROS_INFO("READ MEASURE MAP:");
-      for(int i = 0 ; i < measure_map.info.height ; i++)
-      {
-        for(int j = 0 ; j < measure_map.info.width; j++)
-        {
-          distance = sqrt(pow(grid_y-i,2)+pow(grid_x-j,2))*measure_map.info.resolution;
-          if ((map.data[i*map.info.width + j] == -1) || (map.data[i*map.info.width + j] > 90))
-            measure_map.data[i*measure_map.info.width + j] = 100;
-          else if (distance <= measure_ratio)
-            measure_map.data[i*measure_map.info.width + j] = 0;
-          else if (measure_map.data[i*measure_map.info.width + j] != 0)
-            measure_map.data[i*measure_map.info.width + j] = -1;
-        }
-      }
-      fnMapProcessing(measure_map);
-      measure_map_file.open("measure_map.txt");
-      if(measure_map_file.is_open())
-      {
-        ROS_INFO("MAP FILE OPENED");
-        for(int j = measure_map.info.width-1; j >= 0; j--)
-        {
-          for(int i = measure_map.info.height-1; i >= 0; i--)
-          {
-            if (measure_map.data[i*measure_map.info.width + j] == 100)
-              measure_map_file<<"*\t";
-            else if (measure_map.data[i*measure_map.info.width + j] == -1)
-              measure_map_file<<" \t";
-            else if (measure_map.data[i*measure_map.info.width + j] == 0)
-              measure_map_file<<"·\t";
-          }
-          measure_map_file <<"\n";
-        }
-        measure_map_file.close();
-      }
-      else
-        ROS_INFO("ERROR WITH MAP FILE");
-      pub_measure_map.publish(measure_map);
-    }*/
+    }
     
   private:
     ros::NodeHandle n;
@@ -299,8 +340,8 @@ class Mapper
     // MAP //
     ros::Subscriber sub_map;
     nav_msgs::OccupancyGrid map;
-    int grid_x;
-    int grid_y;
+    //int grid_x;
+    //int grid_y;
     bool new_map = true;
     
     // SAFE MAP //
@@ -308,13 +349,14 @@ class Mapper
     ros::Publisher pub_safe_map;
 
     // MEASURE MAP //
-    ros::Time mt;
     nav_msgs::OccupancyGrid measure_map;
     ros::Publisher pub_measure_map;
+    geometry_msgs::PoseStamped measure_pose;
+    //int m_grid_x;
+    //int m_grid_y;
     
     // CONTROL //
-    bool measure_done = false;
-    bool debug = true;
+    bool debug = false;
 };
 
 int main(int argc, char **argv)
@@ -324,61 +366,3 @@ int main(int argc, char **argv)
   ros::spin();
   return 0;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-/*void fnReadLocalMap()
-    {
-      measure_map.info.origin.position.x = scan_pose.pose.position.x - (measure_map.info.width-1) / 2*measure_map.info.resolution;
-      measure_map.info.origin.position.y = scan_pose.pose.position.y - (measure_map.info.height-1)/ 2*measure_map.info.resolution;
-      
-      if((grid_x<map.info.width)&&(grid_y<map.info.height))
-      {
-        ROS_INFO("READ LOCAL MAP:");
-        measure_map_file.open ("measure_map.txt");
-        int k = grid_y-measure_map.info.height/2;
-        int l = grid_x-measure_map.info.width/2;
-        for(int i = 0 ; i < measure_map.info.height ; i++)
-        {
-          for(int j = 0 ; j < measure_map.info.width; j++)
-          {
-            measure_map.data[i*measure_map.info.width + j] = map.data[k*map.info.width + l];
-            measure_map_file<<int(measure_map.data[i*measure_map.info.width + j])<<"\t\t";
-            l++;
-          }
-          measure_map_file <<"\n";
-          l = grid_x-measure_map.info.width/2;
-          k++;
-        }
-        measure_map_file.close();
-        pub_measure_map.publish(measure_map);
-      }
-    }*/

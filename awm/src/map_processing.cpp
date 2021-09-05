@@ -13,11 +13,11 @@
 #include <tf2/LinearMath/Quaternion.h>
 #define PI 3.14159265
 
-class Mapper
+class Map_processing
 {
   public:
   
-    Mapper() :
+    Map_processing() :
     tf2_(buffer_)    
     {
       // INITIALIZATION
@@ -48,15 +48,11 @@ class Mapper
       
       // MAP //
       fnDeleteFile("map.txt");
-      sub_map = n.subscribe("/map", 100, &Mapper::mapCallback, this);
+      sub_map = n.subscribe("/map", 100, &Map_processing::mapCallback, this);
       
       // SAVE MAP //
       fnDeleteFile("safe_map.txt");
       pub_safe_map = n.advertise<nav_msgs::OccupancyGrid>("/safe_map", 10);
-      
-      // MEASURE //
-      fnDeleteFile("measure_map.txt");
-      pub_measure_map = n.advertise<nav_msgs::OccupancyGrid>("/measure_map", 10);
     }
     
     void fnWait(bool d)
@@ -153,19 +149,6 @@ class Mapper
       fnMapProcessing(map, safe_map);
       fnWriteMap(safe_map, "safe_map.txt");
       pub_safe_map.publish(safe_map);
-      
-      // MEASURE_MAP //
-      if (new_map)
-      {
-        measure_map = safe_map;
-        fnInitMeasureMap(safe_map, measure_map);
-        new_map = false;
-      }
-      fnUpdateMeasureMap(safe_map, measure_map);
-      fnWriteMap(measure_map, "measure_map.txt");
-      pub_measure_map.publish(measure_map);
-      measure_pose = scan_pose;
-      fnUpdateMeasurement(measure_pose.pose, measure_map);
     }
     
     void fnWriteMap(nav_msgs::OccupancyGrid m, const char* s)
@@ -235,98 +218,6 @@ class Mapper
       }
     }
     
-    /*// MEASURE //
-    void fnMeasure()
-    {
-      ros::Duration d(3.0);
-      ros::Time n = ros::Time::now();
-      
-      if ((n - mt) < d)
-        measure_done = false;
-      else
-      {
-        ros::WallDuration two_hours = ros::WallDuration(2*60*60);
-        ros::WallTime n = ros::WallTime::now() + two_hours;
-        boost::posix_time::ptime my_posix_time = n.toBoost();
-        std::string iso_time_str = boost::posix_time::to_iso_extended_string(my_posix_time);
-        fnReadScanPose();
-        //ROS_INFO("MEASURE DATA:\nx: %f y: %f z: %f t: %s", 
-          scan_pose.pose.position.x,
-          scan_pose.pose.position.y,
-          scan_pose.pose.position.z,
-          iso_time_str.c_str());
-        fnUpdateMeasureMap();
-        measure_done = true;
-      }
-    }*/
-    
-    void fnInitMeasureMap(nav_msgs::OccupancyGrid s_m, nav_msgs::OccupancyGrid &m_m)
-    {
-      for(int i = 0 ; i < m_m.info.height ; i++)
-      {
-        for(int j = 0 ; j < m_m.info.width; j++)
-        {
-          if ((s_m.data[i*s_m.info.width + j] == -1) || (s_m.data[i*s_m.info.width + j] >= 90))
-            m_m.data[i*m_m.info.width + j] = 100; 
-          else if (s_m.data[i*s_m.info.width + j] >= 50)
-            m_m.data[i*m_m.info.width + j] = 50;
-          else
-            m_m.data[i*m_m.info.width + j] = -1;
-        }
-      }
-    }
-    
-    void fnUpdateMeasureMap(nav_msgs::OccupancyGrid s_m, nav_msgs::OccupancyGrid &m_m)
-    {
-      m_m.header.stamp = ros::Time::now();
-      for(int i = 0 ; i < m_m.info.height ; i++)
-      {
-        for(int j = 0 ; j < m_m.info.width; j++)
-        {
-          if ((s_m.data[i*s_m.info.width + j] == -1) && (s_m.data[i*s_m.info.width + j] > 90))
-              m_m.data[i*m_m.info.width + j] = 100;
-          else if (m_m.data[i*s_m.info.width + j] != 0)
-          {
-            if (s_m.data[i*s_m.info.width + j] < 50)
-              m_m.data[i*m_m.info.width + j] = -1;
-            else
-              m_m.data[i*m_m.info.width + j] = 50;
-          }
-        }
-      }
-    }
-    
-    void fnUpdateMeasurement(geometry_msgs::Pose m_p, nav_msgs::OccupancyGrid &m_m)
-    {
-      m_m.header.stamp = ros::Time::now();
-      double distance;
-      float measure_ratio = 0.5;
-      float d;
-      int i;
-      int j;
-      int m_grid_x = round((m_p.position.x - m_m.info.origin.position.x) / m_m.info.resolution);
-      int m_grid_y = round((m_p.position.y - m_m.info.origin.position.y) / m_m.info.resolution);
-      //ROS_INFO("GRID CELLS:\nx: %d y: %d",m_grid_x, m_grid_y);
-        
-      for(int a = 0; a < 360; a++)
-      {
-        d=0.5;
-        distance = 0;
-        while (distance <= measure_ratio)
-        {
-          i = round(m_grid_y + d*sin(a*PI/180));
-          j = round(m_grid_x + d*cos(a*PI/180));
-          distance = sqrt(pow(m_grid_y-i,2)+pow(m_grid_x-j,2))*m_m.info.resolution;
-          //ROS_INFO("i: %d, j: %d, distance: %f", i, j, distance);
-          if ((i > 0) && (j > 0) && (i < m_m.info.height) && (j < m_m.info.width) && (m_m.data[i*m_m.info.width + j] < 90))
-            m_m.data[i*m_m.info.width + j] = 0;
-          else
-            distance = measure_ratio;
-          d+=1;
-        }
-      }
-    }
-    
   private:
     ros::NodeHandle n;
     
@@ -347,13 +238,6 @@ class Mapper
     // SAFE MAP //
     nav_msgs::OccupancyGrid safe_map;
     ros::Publisher pub_safe_map;
-
-    // MEASURE MAP //
-    nav_msgs::OccupancyGrid measure_map;
-    ros::Publisher pub_measure_map;
-    geometry_msgs::PoseStamped measure_pose;
-    //int m_grid_x;
-    //int m_grid_y;
     
     // CONTROL //
     bool debug = false;
@@ -361,66 +245,8 @@ class Mapper
 
 int main(int argc, char **argv)
 {
-  ros::init(argc, argv, "mapper");
-  Mapper mapper;
+  ros::init(argc, argv, "map_processing");
+  Map_processing map_processing;
   ros::spin();
   return 0;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-/*void fnReadLocalMap()
-    {
-      measure_map.info.origin.position.x = scan_pose.pose.position.x - (measure_map.info.width-1) / 2*measure_map.info.resolution;
-      measure_map.info.origin.position.y = scan_pose.pose.position.y - (measure_map.info.height-1)/ 2*measure_map.info.resolution;
-      
-      if((grid_x<map.info.width)&&(grid_y<map.info.height))
-      {
-        //ROS_INFO("READ LOCAL MAP:");
-        measure_map_file.open ("measure_map.txt");
-        int k = grid_y-measure_map.info.height/2;
-        int l = grid_x-measure_map.info.width/2;
-        for(int i = 0 ; i < measure_map.info.height ; i++)
-        {
-          for(int j = 0 ; j < measure_map.info.width; j++)
-          {
-            measure_map.data[i*measure_map.info.width + j] = map.data[k*map.info.width + l];
-            measure_map_file<<int(measure_map.data[i*measure_map.info.width + j])<<"\t\t";
-            l++;
-          }
-          measure_map_file <<"\n";
-          l = grid_x-measure_map.info.width/2;
-          k++;
-        }
-        measure_map_file.close();
-        pub_measure_map.publish(measure_map);
-      }
-    }*/
