@@ -9,9 +9,9 @@
   <!-- NAVIGATION -->
     <include file="$(find awm)/launch/nav.launch"/>
 
-  <!-- RVIZ -->
+  <!-- RVIZ 
     <include file="$(find awm)/launch/rviz_nav.launch"/>
-    
+    -->
   <!-- AWM -->
     <node pkg="awm" type="brain" name="brain" output="screen"/>  
 

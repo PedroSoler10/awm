@@ -9,7 +9,7 @@
   <!-- NAVIGATION -->
     <include file="$(find awm)/launch/navigation.launch"/>
 
-  <!-- RVIZ -->
+  <!-- RVIZ 
    <node pkg="rviz" type="rviz" name="rviz" required="true" args="-d $(find turtlebot3_navigation)/rviz/turtlebot3_navigation.rviz"/>
-   
+   -->
 </launch>
