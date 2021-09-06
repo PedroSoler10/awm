@@ -1,0 +1,7 @@
+uint8 Mode #1 = EXPLORATION
+           #2 = MEASUREMENT
+           #3 = FUSION
+uint8 Num  #NUMBER OF POINTS DEMANDED
+---
+#geometry_msgs/PointStamped Goal_points_list
+uint8 OtroNum
