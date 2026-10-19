@@ -12,10 +12,13 @@ find_package(catkin REQUIRED COMPONENTS
   message_generation
   std_msgs
   geometry_msgs
-  #nav_msgs
+  nav_msgs
+  actionlib_msgs
+  move_base_msgs
   message_filters
   tf2
   tf2_ros
+  tf2_geometry_msgs
 )
 
 ## System dependencies are found with CMake's conventions
@@ -111,10 +114,17 @@ generate_messages(
 
 catkin_package(
   CATKIN_DEPENDS
+   roscpp
    message_runtime
    std_msgs
    geometry_msgs
-   #nav_msgs
+   nav_msgs
+   actionlib_msgs
+   move_base_msgs
+   message_filters
+   tf2
+   tf2_ros
+   tf2_geometry_msgs
 )
 
 ###########
