@@ -1,3 +1,11 @@
+/*
+ * Copyright (c) 2021, Pedro Soler
+ * All rights reserved.
+ *
+ * This file is part of awm and is licensed under the BSD 3-Clause License.
+ * See the LICENSE file at the root of this repository for the full text.
+ */
+
 #include "ros/ros.h"
 #include "tf2_ros/transform_listener.h"
 #include "tf2_geometry_msgs/tf2_geometry_msgs.h"
