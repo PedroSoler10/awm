@@ -49,7 +49,7 @@ export TURTLEBOT3_MODEL=waffle
 roslaunch awm sim_awm.launch
 ```
 
-`TURTLEBOT3_MODEL` selects the robot model spawned in Gazebo and must match the one used by the teleop (`waffle`).
+`TURTLEBOT3_MODEL` selects the robot model spawned in Gazebo. Set it to `waffle` in every terminal that runs the simulation or the teleop. The launch files fall back to `waffle` when it is unset, but some TurtleBot3 packages read the variable directly, so set it explicitly.
 
 To have this set up in every new terminal, add the lines to your `~/.bashrc` once:
 
@@ -116,6 +116,12 @@ docker run -it --rm --name awm --net=host --ipc=host --pid=host -e DISPLAY=$DISP
 - `-v /tmp/.X11-unix:/tmp/.X11-unix:rw` shares the X11 socket, which is how the container's windows appear on your screen.
 - `-v $HOME/shared_ros_ws:/root/shared_ros_ws` mounts your workspace into the container. Editing on your machine and building in the container use the same files.
 
+After you exit the container, close the display access:
+
+```bash
+xhost -local:root
+```
+
 ### 4. Build the workspace
 
 Inside the container, run this the first time and again after every code change:
@@ -141,7 +147,7 @@ roslaunch awm sim_awm.launch
 ```
 
 - `roslaunch awm sim_awm.launch` starts the whole simulation: the Gazebo world, the TurtleBot3, SLAM, navigation, RViz and the `brain` node.
-- `TURTLEBOT3_MODEL=waffle` selects the robot model. The image sets it already (`ENV` in the `Dockerfile`), so no `export` is needed here. It must match the model used by the teleop.
+- `TURTLEBOT3_MODEL` selects the robot model, which is `waffle`. You don't need to export it: the `Dockerfile` sets it with `ENV`, so every terminal in the container already has it.
 
 Gazebo and RViz should open. To drive the robot, open a second terminal in the container:
 
