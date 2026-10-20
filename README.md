@@ -25,11 +25,13 @@ git clone https://github.com/PedroSoler10/awm.git awm
 
 ### 3. Install the dependencies
 
-Install the packages used by the launch files. Using apt directly avoids `rosdep`, which can't resolve ROS Noetic keys on newer rosdistro indexes:
+Install the packages listed in `package.xml`. The script reads that file and installs the matching apt packages, so the list is not repeated here. It uses apt directly, which avoids `rosdep` because `rosdep` can't resolve ROS Noetic keys on newer rosdistro indexes.
 
 ```bash
-sudo apt install -y ros-noetic-tf2-ros ros-noetic-tf2-geometry-msgs ros-noetic-actionlib-msgs ros-noetic-geometry-msgs ros-noetic-nav-msgs ros-noetic-move-base-msgs ros-noetic-gazebo-ros-pkgs ros-noetic-gazebo-plugins ros-noetic-turtlebot3-gazebo ros-noetic-turtlebot3-bringup ros-noetic-turtlebot3-description ros-noetic-turtlebot3-navigation ros-noetic-turtlebot3-slam ros-noetic-turtlebot3-teleop ros-noetic-gmapping ros-noetic-rviz ros-noetic-robot-state-publisher ros-noetic-xacro ros-noetic-move-base ros-noetic-map-server ros-noetic-amcl
+cd ~/ros_ws/src/awm && ./scripts/install_deps.sh
 ```
+
+To see the packages without installing them, run `./scripts/install_deps.sh --print`.
 
 ### 4. Build
 

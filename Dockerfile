@@ -1,30 +1,11 @@
 FROM ros:noetic-ros-base
 
-# Everything the awm launch files need, installed from apt so nobody has to
-# resolve rosdep keys by hand. tf2_ros is not in ros-base, so it is listed explicitly.
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ros-noetic-tf2-ros \
-    ros-noetic-tf2-geometry-msgs \
-    ros-noetic-actionlib-msgs \
-    ros-noetic-geometry-msgs \
-    ros-noetic-nav-msgs \
-    ros-noetic-move-base-msgs \
-    ros-noetic-gazebo-ros-pkgs \
-    ros-noetic-gazebo-plugins \
-    ros-noetic-turtlebot3-gazebo \
-    ros-noetic-turtlebot3-bringup \
-    ros-noetic-turtlebot3-description \
-    ros-noetic-turtlebot3-navigation \
-    ros-noetic-turtlebot3-slam \
-    ros-noetic-turtlebot3-teleop \
-    ros-noetic-gmapping \
-    ros-noetic-rviz \
-    ros-noetic-robot-state-publisher \
-    ros-noetic-xacro \
-    ros-noetic-move-base \
-    ros-noetic-map-server \
-    ros-noetic-amcl \
-    && rm -rf /var/lib/apt/lists/*
+# Install the dependencies listed in package.xml, using the same script as the native install.
+# Only these two files are copied, so this layer is rebuilt only when they change.
+COPY package.xml /tmp/awm/package.xml
+COPY scripts/install_deps.sh /tmp/awm/scripts/install_deps.sh
+RUN bash /tmp/awm/scripts/install_deps.sh \
+    && rm -rf /var/lib/apt/lists/* /tmp/awm
 
 # The workspace is not copied into the image: it is mounted from the host at /root/shared_ros_ws
 WORKDIR /root/shared_ros_ws
