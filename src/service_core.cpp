@@ -1,3 +1,11 @@
+/*
+ * Copyright (c) 2021, Pedro Soler
+ * All rights reserved.
+ *
+ * This file is part of awm and is licensed under the BSD 3-Clause License.
+ * See the LICENSE file at the root of this repository for the full text.
+ */
+
 #include <string.h>
 #include "ros/ros.h"
 #include "std_msgs/String.h"

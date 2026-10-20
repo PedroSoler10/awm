@@ -1,3 +1,11 @@
+/*
+ * Copyright (c) 2021, Pedro Soler
+ * All rights reserved.
+ *
+ * This file is part of awm and is licensed under the BSD 3-Clause License.
+ * See the LICENSE file at the root of this repository for the full text.
+ */
+
 #include "ros/ros.h"
 #include "awm/Measure.h"
 
