@@ -30,5 +30,6 @@
   <exec_depend>turtlebot3_gazebo</exec_depend>
   <exec_depend>turtlebot3_navigation</exec_depend>
   <exec_depend>turtlebot3_slam</exec_depend>
+  <exec_depend>gmapping</exec_depend>
   <exec_depend>xacro</exec_depend>
 </package>
