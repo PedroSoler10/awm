@@ -1,18 +1,80 @@
-<launch>  
-    
-  <!-- BRING UP -->
-    <include file="$(find awm)/launch/robot.launch"/>
-    
+<?xml version="1.0"?>
+<!--
+  Single entry point for the AWM project: robot (Gazebo simulation or real
+  TurtleBot3), SLAM, navigation, RViz and the `brain` node.
+
+  Every module can be switched on or off, so a subset can be started with one
+  command, for example:
+    roslaunch awm awm.launch                          full simulation
+    roslaunch awm awm.launch brain:=false rviz:=false simulation, no brain and no RViz
+    roslaunch awm awm.launch sim:=false               real robot, run on the robot
+  See the README for the full list of arguments.
+-->
+<launch>
+  <!-- Robot -->
+  <arg name="sim" default="true" doc="true: Gazebo simulation, false: real TurtleBot3 (bringup runs on this machine)"/>
+  <arg name="model" default="$(optenv TURTLEBOT3_MODEL waffle)" doc="model type [burger, waffle, waffle_pi]. TURTLEBOT3_MODEL must also be set to the same value"/>
+
+  <!-- Simulation only -->
+  <arg name="world" default="turtlebot3_world" doc="world from turtlebot3_gazebo/worlds, without the .world extension"/>
+  <arg name="gui" default="true" doc="show the Gazebo window"/>
+  <arg name="x_pos" default="-2.0" doc="robot spawn position in the world, in meters"/>
+  <arg name="y_pos" default="-0.5" doc="robot spawn position in the world, in meters"/>
+  <arg name="z_pos" default="0.0" doc="robot spawn position in the world, in meters"/>
+
+  <!-- Modules -->
+  <arg name="slam" default="true" doc="run SLAM"/>
+  <arg name="slam_method" default="gmapping" doc="SLAM method [gmapping, cartographer, hector, karto, frontier_exploration]"/>
+  <arg name="nav" default="true" doc="run AMCL and move_base"/>
+  <arg name="move_forward_only" default="false" doc="navigation never reverses the robot"/>
+  <arg name="rviz" default="true" doc="open RViz"/>
+  <arg name="rviz_config" default="$(find turtlebot3_navigation)/rviz/turtlebot3_navigation.rviz" doc="RViz configuration file"/>
+  <arg name="brain" default="true" doc="run the awm brain node"/>
+
+  <!-- Gazebo, the robot model and its spawn -->
+  <group if="$(arg sim)">
+    <include file="$(find gazebo_ros)/launch/empty_world.launch">
+      <arg name="world_name" value="$(find turtlebot3_gazebo)/worlds/$(arg world).world"/>
+      <arg name="paused" value="false"/>
+      <arg name="use_sim_time" value="true"/>
+      <arg name="gui" value="$(arg gui)"/>
+      <arg name="headless" value="false"/>
+      <arg name="debug" value="false"/>
+    </include>
+
+    <!-- Robot description and TF tree -->
+    <include file="$(find turtlebot3_bringup)/launch/turtlebot3_remote.launch">
+      <arg name="model" value="$(arg model)"/>
+    </include>
+
+    <node pkg="gazebo_ros" type="spawn_model" name="spawn_urdf"
+          args="-urdf -model turtlebot3_$(arg model) -x $(arg x_pos) -y $(arg y_pos) -z $(arg z_pos) -param robot_description"/>
+  </group>
+
+  <!-- Real robot drivers, lidar and TF tree -->
+  <group unless="$(arg sim)">
+    <include file="$(find turtlebot3_bringup)/launch/turtlebot3_robot.launch"/>
+  </group>
+
   <!-- SLAM -->
-    <include file="$(find awm)/launch/slam.launch"/>
-    
-  <!-- NAVIGATION -->
-    <include file="$(find awm)/launch/nav.launch"/>
+  <group if="$(arg slam)">
+    <include file="$(find turtlebot3_slam)/launch/turtlebot3_$(arg slam_method).launch">
+      <arg name="model" value="$(arg model)"/>
+    </include>
+  </group>
 
-  <!-- RVIZ 
-    <include file="$(find awm)/launch/rviz_nav.launch"/>
-    -->
+  <!-- Navigation -->
+  <group if="$(arg nav)">
+    <include file="$(find turtlebot3_navigation)/launch/amcl.launch"/>
+    <include file="$(find turtlebot3_navigation)/launch/move_base.launch">
+      <arg name="model" value="$(arg model)"/>
+      <arg name="move_forward_only" value="$(arg move_forward_only)"/>
+    </include>
+  </group>
+
+  <!-- RViz -->
+  <node if="$(arg rviz)" pkg="rviz" type="rviz" name="rviz" args="-d $(arg rviz_config)"/>
+
   <!-- AWM -->
-    <node pkg="awm" type="brain" name="brain" output="screen"/>  
-
+  <node if="$(arg brain)" pkg="awm" type="brain" name="brain" output="screen"/>
 </launch>

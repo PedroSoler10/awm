@@ -1,6 +1,0 @@
-<launch>
-    
-  <!-- AWM -->
-    <node pkg="awm" type="brain" name="brain" output="screen"/>  
-
-</launch>
