@@ -1,4 +1,13 @@
 <?xml version="1.0"?>
+<!--
+  package.xml describes this package to ROS: its name, its license and the
+  other packages it needs.
+
+  scripts/install_deps.sh reads this file. It turns every <depend>,
+  <build_depend> and <exec_depend> name into the apt package
+  "ros-noetic-<name>" (with "_" replaced by "-"). So each name must be a real
+  ROS package. <buildtool_depend> is not read by the script.
+-->
 <package format="2">
   <name>awm</name>
   <version>0.0.0</version>
@@ -8,34 +17,43 @@
   <author email="soler.pedrojavier@gmail.com">Pedro Soler</author>
   <license>BSD</license>
 
+  <!-- The build tool. Provided by ros-noetic-ros-base. -->
   <buildtool_depend>catkin</buildtool_depend>
 
+  <!-- Needed only to build: the messages in msg/ and srv/ are generated at build time. -->
   <build_depend>message_generation</build_depend>
 
-  <depend>actionlib_msgs</depend>
-  <depend>geometry_msgs</depend>
-  <depend>move_base_msgs</depend>
-  <depend>nav_msgs</depend>
-  <depend>roscpp</depend>
-  <depend>tf2</depend>
-  <depend>tf2_geometry_msgs</depend>
-  <depend>tf2_ros</depend>
+  <!-- Packages used by the C++ code in src/. "depend" means needed to build,
+       and to run, and passed on to packages that depend on awm.
+       Must match the find_package list in CMakeLists.txt.
+       Boost is not listed here: it is a C++ library, not a ROS package, and
+       it is installed with roscpp. CMakeLists.txt finds it. -->
+  <depend>actionlib_msgs</depend>      <!-- move_base goal status -->
+  <depend>geometry_msgs</depend>       <!-- PoseStamped -->
+  <depend>move_base_msgs</depend>      <!-- move_base messages -->
+  <depend>nav_msgs</depend>            <!-- OccupancyGrid (the map) -->
+  <depend>roscpp</depend>              <!-- ros::init, publishers, subscribers -->
+  <depend>tf2</depend>                 <!-- quaternions -->
+  <depend>tf2_geometry_msgs</depend>   <!-- tf2::toMsg -->
+  <depend>tf2_ros</depend>             <!-- transform listener and buffer -->
 
-  <exec_depend>message_runtime</exec_depend>
-  <exec_depend>gazebo_ros</exec_depend>
+  <!-- Needed to run, not to build. Used by launch/awm.launch to start the
+       TurtleBot3 simulation, navigation and mapping. -->
+  <exec_depend>message_runtime</exec_depend>      <!-- runs the generated messages -->
+  <exec_depend>gazebo_ros</exec_depend>           <!-- Gazebo simulator -->
+  <exec_depend>gazebo_plugins</exec_depend>
   <exec_depend>robot_state_publisher</exec_depend>
   <exec_depend>rviz</exec_depend>
+  <exec_depend>xacro</exec_depend>
   <exec_depend>turtlebot3_bringup</exec_depend>
   <exec_depend>turtlebot3_description</exec_depend>
   <exec_depend>turtlebot3_gazebo</exec_depend>
   <exec_depend>turtlebot3_navigation</exec_depend>
   <exec_depend>turtlebot3_slam</exec_depend>
-  <exec_depend>gmapping</exec_depend>
-  <exec_depend>xacro</exec_depend>
-  <exec_depend>gazebo_plugins</exec_depend>
   <exec_depend>turtlebot3_teleop</exec_depend>
-  <exec_depend>move_base</exec_depend>
+  <exec_depend>gmapping</exec_depend>             <!-- SLAM -->
+  <exec_depend>move_base</exec_depend>            <!-- navigation -->
   <exec_depend>map_server</exec_depend>
-  <exec_depend>amcl</exec_depend>
-  <exec_depend>dwa_local_planner</exec_depend>
+  <exec_depend>amcl</exec_depend>                 <!-- localization -->
+  <exec_depend>dwa_local_planner</exec_depend>    <!-- local planner -->
 </package>
