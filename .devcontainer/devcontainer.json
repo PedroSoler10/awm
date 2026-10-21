@@ -1,0 +1,34 @@
+{
+  "name": "awm (ROS Noetic)",
+
+  // Build the image from the Dockerfile in this package. The build context is
+  // the package folder, because the Dockerfile copies package.xml and scripts/.
+  "build": {
+    "dockerfile": "../Dockerfile",
+    "context": ".."
+  },
+
+  // Mount the whole shared_ros_ws folder, because the Dockerfile expects the
+  // workspace at /root/shared_ros_ws (devel/ and src/ are both needed).
+  "workspaceMount": "source=${localWorkspaceFolder}/../..,target=/root/shared_ros_ws,type=bind",
+  "workspaceFolder": "/root/shared_ros_ws/src/awm",
+
+  // Tell IntelliSense where the Noetic and workspace headers are.
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-vscode.cpptools",
+        "mine.cpplint"
+      ],
+      "settings": {
+        "C_Cpp.default.includePath": [
+          "/opt/ros/noetic/include/**",
+          "/root/shared_ros_ws/devel/include/**",
+          "${workspaceFolder}/**"
+        ]
+      }
+    }
+  },
+
+  "remoteUser": "root"
+}
