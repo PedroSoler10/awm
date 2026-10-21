@@ -8,6 +8,7 @@ ROS Noetic nodes, interfaces and launch files for the AWM project, running a Tur
 - `msg/`, `srv/`: custom interfaces (`Num.msg`, `GoalPoints.srv`).
 - `launch/awm.launch`: single launch file for the simulation or the real robot, with a switch for each module (see [Launch options](#launch-options)).
 - `Dockerfile`: builds an image with every dependency already installed.
+- `docs/CONFIGURATION.md`: coding style, formatting and lint tools, editor setup, and the development container.
 
 ## Option A: Native install (Ubuntu 20.04 + ROS Noetic)
 
