@@ -241,7 +241,7 @@ class Brain
               {
                 i = round(grid_y_ + d*sin(a*PI/180));
                 j = round(grid_x_ + d*cos(a*PI/180));
-                if((i > measure_map_.info.height) || (j > measure_map_.info.width) || (i < 0) || (j < 0))
+                if((i >= measure_map_.info.height) || (j >= measure_map_.info.width) || (i < 0) || (j < 0))
                 {
                   i = grid_y_;
                   j = grid_x_;
