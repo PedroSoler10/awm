@@ -6,76 +6,82 @@
  * See the LICENSE file at the root of this repository for the full text.
  */
 
-#include "ros/ros.h"
-#include "stdio.h"
+// Standard library
+#include <cmath>
+#include <cstdio>
+#include <ctime>
+#include <fstream>
 #include <string>
-#include <math.h>
-#include "fstream"
-#include "tf2_ros/transform_listener.h"
-#include "tf2_geometry_msgs/tf2_geometry_msgs.h"
-#include "geometry_msgs/PoseStamped.h"
-#include "nav_msgs/OccupancyGrid.h"
-#include "move_base_msgs/MoveBaseActionResult.h"
-#include "actionlib_msgs/GoalStatusArray.h"
-#include "boost/date_time/posix_time/posix_time.hpp"
+
+// ROS core
+#include <ros/ros.h>
+
+// ROS message types
+#include <actionlib_msgs/GoalStatusArray.h>
+#include <geometry_msgs/PoseStamped.h>
+#include <nav_msgs/OccupancyGrid.h>
+
+// TF2 (coordinate frame transforms)
 #include <tf2/LinearMath/Quaternion.h>
-#define PI 3.14159265
+#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
+#include <tf2_ros/transform_listener.h>
+
 using namespace std;
 
 class Brain
 {
   public:
-    Brain() :
-    tf2_(buffer_)    
+    Brain()   
     {
       // INITIALIZATION
       fnInit();
       ROS_INFO("INITIALIZATION DONE");
-      fnWait(debug);
-      //ros::Duration(5).sleep();
+      fnWait(debug_);
       ROS_INFO("STARTING PROGRAM");
       ros::Time timer = ros::Time::now();
+      
       // LOOP
       ros::Rate loop_rate(10);
-      
-      while ( ros::ok())// && ( ( ros::Time::now().toSec() - timer.toSec() ) < 15 ) )
+      while ( ros::ok())
       {
+        ros::spinOnce();
+
         // STATE MACHINE
         control();
-        ros::spinOnce();
+
         loop_rate.sleep();
       }
       fnReadScanPose();
-      pub_goal.publish(scan_pose);
+      pub_goal_.publish(scan_pose_);
     }
     void fnInit()
     {
       // SCAN POSE
       buffer_.setUsingDedicatedThread(true);
-      base_scan_pose.header.frame_id = "base_scan";
-      base_scan_pose.header.stamp = ros::Time::now();
-      base_scan_pose.pose.orientation.x = 0;
-      base_scan_pose.pose.orientation.y = 0;
-      base_scan_pose.pose.orientation.z = 0;
-      base_scan_pose.pose.orientation.w = 1;
-      //scan_pose.header.frame_id = "base_scan";
-      pub_scan_pose = n.advertise<geometry_msgs::PoseStamped>("/scan_pose", 100);
+      base_scan_pose_.header.frame_id = "base_scan";
+      base_scan_pose_.header.stamp = ros::Time::now();
+      base_scan_pose_.pose.orientation.x = 0;
+      base_scan_pose_.pose.orientation.y = 0;
+      base_scan_pose_.pose.orientation.z = 0;
+      base_scan_pose_.pose.orientation.w = 1;
+      //scan_pose_.header.frame_id = "base_scan";
+      pub_scan_pose_ = n_.advertise<geometry_msgs::PoseStamped>("/scan_pose", 100);
       
       // MAP //
-      sub_map = n.subscribe("/map", 100, &Brain::mapCallback, this);
-      local_map.header.frame_id = "map";
-      local_map.info.resolution = local_map_resolution;
-      local_map.info.width = local_map_size+1;
-      local_map.info.height = local_map_size+1;
-      local_map.info.origin.orientation.w = 1;
-      pub_local_map = n.advertise<nav_msgs::OccupancyGrid>("/local_map", 100);
+      sub_map_ = n_.subscribe("/map", 100, &Brain::mapCallback, this);
+      local_map_.header.frame_id = "map";
+      local_map_.info.resolution = local_map_resolution_;
+      local_map_.info.width = local_map_size_+1;
+      local_map_.info.height = local_map_size_+1;
+      local_map_.info.origin.orientation.w = 1;
+      pub_local_map_ = n_.advertise<nav_msgs::OccupancyGrid>("/local_map", 100);
       
       // NAVIGATION //
-      goal_pose.header.frame_id = "map";
-      pub_goal = n.advertise<geometry_msgs::PoseStamped>("/move_base_simple/goal", 1);
-      sub_status = n.subscribe("/move_base/status", 10, &Brain::statusCallback, this);
-      sub_goal = n.subscribe("/move_base_simple/goal", 100, &Brain::goalCallback, this);
-      pub_measure_map = n.advertise<nav_msgs::OccupancyGrid>("/measure_map", 100);
+      goal_pose_.header.frame_id = "map";
+      pub_goal_ = n_.advertise<geometry_msgs::PoseStamped>("/move_base_simple/goal", 1);
+      sub_status_ = n_.subscribe("/move_base/status", 10, &Brain::statusCallback, this);
+      sub_goal_ = n_.subscribe("/move_base_simple/goal", 100, &Brain::goalCallback, this);
+      pub_measure_map_ = n_.advertise<nav_msgs::OccupancyGrid>("/measure_map", 100);
       
       // MEASURE //
       
@@ -96,18 +102,18 @@ class Brain
     {
       try
       {
-        buffer_.transform(base_scan_pose, scan_pose, "map");
-        scan_pose.header.stamp = ros::Time::now();
-        pub_scan_pose.publish(scan_pose);
+        buffer_.transform(base_scan_pose_, scan_pose_, "map");
+        scan_pose_.header.stamp = ros::Time::now();
+        pub_scan_pose_.publish(scan_pose_);
       }
       catch (tf2::TransformException &ex)
       {
         ROS_INFO("ERROR WITH SCAN POSE");
         ROS_WARN("%s",ex.what());
-        fnWait(debug);
+        fnWait(debug_);
         //return;
       }
-      fnPrintPose(scan_pose.pose,"SCAN POSE");
+      fnPrintPose(scan_pose_.pose,"SCAN POSE");
     }
     void fnPrintPose(geometry_msgs::Pose p, const char* n)
     {
@@ -127,58 +133,58 @@ class Brain
     {
       //ROS_INFO("MAP CALLBACK");
       fnReadScanPose(); 
-      if (msg.info.width != map.info.width)
+      if (msg.info.width != map_.info.width)
       {
         if (remove("map.txt") == 0)
           ROS_INFO("OLD MAP DELETED");
         else
           ROS_INFO("OLD MAP NOT DELETED");
       }
-      map = msg;
-      grid_x = round((scan_pose.pose.position.x - map.info.origin.position.x) / map.info.resolution);
-      grid_y = round((scan_pose.pose.position.y - map.info.origin.position.y) / map.info.resolution);
-      map_file.open ("map.txt");
-      for(int j = map.info.width-1; j >= 0; j--)
+      map_ = msg;
+      grid_x_ = round((scan_pose_.pose.position.x - map_.info.origin.position.x) / map_.info.resolution);
+      grid_y_ = round((scan_pose_.pose.position.y - map_.info.origin.position.y) / map_.info.resolution);
+      map_file_.open ("map.txt");
+      for(int j = map_.info.width-1; j >= 0; j--)
       {
-        for(int i = map.info.height-1; i >= 0; i--)
+        for(int i = map_.info.height-1; i >= 0; i--)
         {
-          if (map.data[i*map.info.width + j] == 100)
-            map_file<<"*\t";
-          else if (map.data[i*map.info.width + j] == -1)
-            map_file<<"·\t";
-          else if (map.data[i*map.info.width + j] == 0)
-            map_file<<"+\t";
+          if (map_.data[i*map_.info.width + j] == 100)
+            map_file_<<"*\t";
+          else if (map_.data[i*map_.info.width + j] == -1)
+            map_file_<<"·\t";
+          else if (map_.data[i*map_.info.width + j] == 0)
+            map_file_<<"+\t";
         }
-        map_file <<"\n";
+        map_file_ <<"\n";
       }
-      map_file.close();
-      //ROS_INFO("MAP CALLBACK:\nGRID CELLS:\nx: %d y: %d",grid_x, grid_y);
+      map_file_.close();
+      //ROS_INFO("MAP CALLBACK:\nGRID CELLS:\nx: %d y: %d",grid_x_, grid_y_);
     }
     void fnReadLocalMap()
     {
-      local_map.info.origin.position.x = scan_pose.pose.position.x - (local_map.info.width-1) / 2*local_map.info.resolution;
-      local_map.info.origin.position.y = scan_pose.pose.position.y - (local_map.info.height-1)/ 2*local_map.info.resolution;
+      local_map_.info.origin.position.x = scan_pose_.pose.position.x - (local_map_.info.width-1) / 2*local_map_.info.resolution;
+      local_map_.info.origin.position.y = scan_pose_.pose.position.y - (local_map_.info.height-1)/ 2*local_map_.info.resolution;
       
-      if((grid_x<map.info.width)&&(grid_y<map.info.height))
+      if((grid_x_<map_.info.width)&&(grid_y_<map_.info.height))
       {
         ROS_INFO("READ LOCAL MAP:");
-        local_map_file.open ("local_map.txt");
-        int k = grid_y-local_map.info.height/2;
-        int l = grid_x-local_map.info.width/2;
-        for(int i = 0 ; i < local_map.info.height ; i++)
+        local_map_file_.open ("local_map.txt");
+        int k = grid_y_-local_map_.info.height/2;
+        int l = grid_x_-local_map_.info.width/2;
+        for(int i = 0 ; i < local_map_.info.height ; i++)
         {
-          for(int j = 0 ; j < local_map.info.width; j++)
+          for(int j = 0 ; j < local_map_.info.width; j++)
           {
-            local_map.data[i*local_map.info.width + j] = map.data[k*map.info.width + l];
-            local_map_file<<int(local_map.data[i*local_map.info.width + j])<<"\t\t";
+            local_map_.data[i*local_map_.info.width + j] = map_.data[k*map_.info.width + l];
+            local_map_file_<<int(local_map_.data[i*local_map_.info.width + j])<<"\t\t";
             l++;
           }
-          local_map_file <<"\n";
-          l = grid_x-local_map.info.width/2;
+          local_map_file_ <<"\n";
+          l = grid_x_-local_map_.info.width/2;
           k++;
         }
-        local_map_file.close();
-        pub_local_map.publish(local_map);
+        local_map_file_.close();
+        pub_local_map_.publish(local_map_);
       }
     }
     
@@ -186,7 +192,7 @@ class Brain
     void fnPubGoal(int mode)
     {
       
-      if (goal_published == false)
+      if (goal_published_ == false)
       {
         ROS_INFO("IDENTIFYING GOAL");
         if (mode == 0)
@@ -195,18 +201,18 @@ class Brain
         }
         else if (mode == 1)
         {
-          goal_pose = scan_pose;
-          if (flag)
-            goal_pose.pose.position.x += 1;
+          goal_pose_ = scan_pose_;
+          if (flag_)
+            goal_pose_.pose.position.x += 1;
           else
-            goal_pose.pose.position.x -= 0.75;
-            flag = !flag;
-            goal_pose.pose.orientation.x = 0;
-            goal_pose.pose.orientation.y = 0;
-            goal_pose.pose.orientation.z = 0;
-            goal_pose.pose.orientation.w = 1;
-            pub_goal.publish(goal_pose);
-            goal_published = true;
+            goal_pose_.pose.position.x -= 0.75;
+            flag_ = !flag_;
+            goal_pose_.pose.orientation.x = 0;
+            goal_pose_.pose.orientation.y = 0;
+            goal_pose_.pose.orientation.z = 0;
+            goal_pose_.pose.orientation.w = 1;
+            pub_goal_.publish(goal_pose_);
+            goal_published_ = true;
         }
         else if (mode == 2)
         {
@@ -218,8 +224,8 @@ class Brain
           int j;
           int d;
           int a;
-          int i_min = grid_y;
-          int j_min = grid_x;
+          int i_min = grid_y_;
+          int j_min = grid_x_;
           int d_min = r_lim + 1;
           int a_min = 0;
           
@@ -233,23 +239,23 @@ class Brain
               a = 0;
               do
               {
-                i = round(grid_y + d*sin(a*PI/180));
-                j = round(grid_x + d*cos(a*PI/180));
-                if((i > measure_map.info.height) || (j > measure_map.info.width) || (i < 0) || (j < 0))
+                i = round(grid_y_ + d*sin(a*PI/180));
+                j = round(grid_x_ + d*cos(a*PI/180));
+                if((i > measure_map_.info.height) || (j > measure_map_.info.width) || (i < 0) || (j < 0))
                 {
-                  i = grid_y;
-                  j = grid_x;
+                  i = grid_y_;
+                  j = grid_x_;
                 }
                 a++;
-                //ROS_INFO("GOAL OPTION:\nX: %d Y: %d DATA: %d", j, i, measure_map.data[i*measure_map.info.width + j]);
+                //ROS_INFO("GOAL OPTION:\nX: %d Y: %d DATA: %d", j, i, measure_map_.data[i*measure_map_.info.width + j]);
               }
-              while ((measure_map.data[i*measure_map.info.width + j] != -1) && (a < 360));
+              while ((measure_map_.data[i*measure_map_.info.width + j] != -1) && (a < 360));
               d++;
             }
-            while ((measure_map.data[i*measure_map.info.width + j] != -1) && (d < r_max));
+            while ((measure_map_.data[i*measure_map_.info.width + j] != -1) && (d < r_max));
             a--;
             d--;
-            if (measure_map.data[i*measure_map.info.width + j] == -1)
+            if (measure_map_.data[i*measure_map_.info.width + j] == -1)
             {
               i_min = i;
               j_min = j;
@@ -258,25 +264,25 @@ class Brain
               ROS_INFO("I_MIN: %d J_MIN: %d D_MIN: %d A_MIN: %d ",i_min,j_min,d_min,a_min);
             }
           }
-          if((i_min == grid_x) && (j_min == grid_y) && (d_min == r_lim + 1) && (a_min == 0))
+          if((i_min == grid_x_) && (j_min == grid_y_) && (d_min == r_lim + 1) && (a_min == 0))
           {
             ROS_INFO("EVERYTHING MEASURED");
           }
           else
           {
-            goal_pose = scan_pose;
-            goal_pose.pose.position.x = j_min * measure_map.info.resolution + measure_map.info.origin.position.x;
-            goal_pose.pose.position.y = i_min * measure_map.info.resolution + measure_map.info.origin.position.y;
+            goal_pose_ = scan_pose_;
+            goal_pose_.pose.position.x = j_min * measure_map_.info.resolution + measure_map_.info.origin.position.x;
+            goal_pose_.pose.position.y = i_min * measure_map_.info.resolution + measure_map_.info.origin.position.y;
             tf2::Quaternion goal_angle_tf;
             goal_angle_tf.setRPY(0, 0, a*PI/180);
             geometry_msgs::Quaternion goal_angle;
             goal_angle = tf2::toMsg(goal_angle_tf);
-            goal_pose.pose.orientation.x = double(goal_angle.x);
-            goal_pose.pose.orientation.y = double(goal_angle.y);
-            goal_pose.pose.orientation.z = double(goal_angle.z);
-            goal_pose.pose.orientation.w = double(goal_angle.w);
-            pub_goal.publish(goal_pose);
-            goal_published = true;
+            goal_pose_.pose.orientation.x = double(goal_angle.x);
+            goal_pose_.pose.orientation.y = double(goal_angle.y);
+            goal_pose_.pose.orientation.z = double(goal_angle.z);
+            goal_pose_.pose.orientation.w = double(goal_angle.w);
+            pub_goal_.publish(goal_pose_);
+            goal_published_ = true;
           }
         }
       }
@@ -289,14 +295,14 @@ class Brain
       {
         if ((st->status_list[1].status >= 0) && (st->status_list[1].status <= 9) && (st->status_list[0].goal_id.stamp.sec < st->status_list[1].goal_id.stamp.sec) && (st->status_list[0].goal_id.stamp.nsec < st->status_list[1].goal_id.stamp.nsec))
           if ((st->status_list[2].status >= 0) && (st->status_list[2].status <= 9) && (st->status_list[1].goal_id.stamp.sec < st->status_list[2].goal_id.stamp.sec) && (st->status_list[1].goal_id.stamp.nsec < st->status_list[2].goal_id.stamp.nsec))
-            goal_status = st->status_list[2].status;
+            goal_status_ = st->status_list[2].status;
           else
-            goal_status = st->status_list[1].status;
+            goal_status_ = st->status_list[1].status;
         else
-          goal_status = st->status_list[0].status;
-       if (goal_status < 3)
-          goal_published = true;   
-       //ROS_INFO("STATUS  : %d",goal_status);
+          goal_status_ = st->status_list[0].status;
+       if (goal_status_ < 3)
+          goal_published_ = true;   
+       //ROS_INFO("STATUS  : %d",goal_status_);
        //ROS_INFO("STATUS 0: %d TIME: %d.%d", st->status_list[0].status, st->status_list[0].goal_id.stamp.sec, st->status_list[0].goal_id.stamp.nsec);
        //ROS_INFO("STATUS 1: %d TIME: %d.%d", st->status_list[1].status, st->status_list[1].goal_id.stamp.sec, st->status_list[1].goal_id.stamp.nsec);
        //ROS_INFO("STATUS 2: %d TIME: %d.%d", st->status_list[2].status, st->status_list[2].goal_id.stamp.sec, st->status_list[2].goal_id.stamp.nsec);
@@ -304,14 +310,14 @@ class Brain
     }
     void goalCallback(const geometry_msgs::PoseStamped msg)
     {
-      /*if ((goal_pose.pose.position.x != msg.pose.position.x) || (goal_pose.pose.position.y != msg.pose.position.y))
+      /*if ((goal_pose_.pose.position.x != msg.pose.position.x) || (goal_pose_.pose.position.y != msg.pose.position.y))
       {
-        goal_pose = msg;
-        goal_published = true;
-        new_goal = true;
+        goal_pose_ = msg;
+        goal_published_ = true;
+        new_goal_ = true;
       }
       else
-        new_goal = false;*/
+        new_goal_ = false;*/
     }
 
     // MEASURE //
@@ -320,174 +326,177 @@ class Brain
       ros::Duration d(3.0);
       ros::Time n = ros::Time::now();
       
-      if ((n - mt) < d)
-        measure_done = false;
+      if ((n - mt_) < d)
+        measure_done_ = false;
       else
       {
-        ros::WallDuration two_hours = ros::WallDuration(2*60*60);
-        ros::WallTime n = ros::WallTime::now() + two_hours;
-        boost::posix_time::ptime my_posix_time = n.toBoost();
-        string iso_time_str = boost::posix_time::to_iso_extended_string(my_posix_time);
+        // Local wall-clock time, e.g. "2026-10-21T10-30-05".
+        // Colons are avoided so the file name also works on Windows.
+        time_t now = time(nullptr);
+        tm local_time = *localtime(&now);
+        char time_buffer[32];
+        strftime(time_buffer, sizeof(time_buffer), "%Y-%m-%dT%H-%M-%S", &local_time);
+        string iso_time_str = time_buffer;
         fnReadScanPose();
         ROS_INFO("MEASURE DATA:\nx: %f y: %f t: %s", 
-          scan_pose.pose.position.x,
-          scan_pose.pose.position.y,
+          scan_pose_.pose.position.x,
+          scan_pose_.pose.position.y,
           iso_time_str.c_str());
-        string f_n = to_string(scan_pose.pose.position.x)+"_"+
-                     to_string(scan_pose.pose.position.y)+"_"+
+        string f_n = to_string(scan_pose_.pose.position.x)+"_"+
+                     to_string(scan_pose_.pose.position.y)+"_"+
                      iso_time_str+".txt";
         ofstream m_f;
         m_f.open(f_n);
         m_f.close();
         fnUpdateMeasureMap();
-        measure_done = true;
+        measure_done_ = true;
       }
     }
     void fnUpdateMeasureMap()
     {
-      measure_map.header.stamp = ros::Time::now();
+      measure_map_.header.stamp = ros::Time::now();
       double distance;
       float measure_ratio = 0.5;
       ROS_INFO("UPDATE MEASURE MAP");
-      if(measure_map.info.width != map.info.width)
+      if(measure_map_.info.width != map_.info.width)
       {
         if (remove("measure_map.txt") == 0)
           ROS_INFO("OLD MEASURE MAP DELETED");
         else
           ROS_INFO("OLD MEASURE MAP NOT DELETED");
-        measure_map = map;
-        for(int i = 0 ; i < measure_map.info.height ; i++)
+        measure_map_ = map_;
+        for(int i = 0 ; i < measure_map_.info.height ; i++)
         {
-          for(int j = 0 ; j < measure_map.info.width; j++)
+          for(int j = 0 ; j < measure_map_.info.width; j++)
           {
-            if ((map.data[i*map.info.width + j] == -1) || (map.data[i*map.info.width + j] > 90))
-              measure_map.data[i*measure_map.info.width + j] = 100;
+            if ((map_.data[i*map_.info.width + j] == -1) || (map_.data[i*map_.info.width + j] > 90))
+              measure_map_.data[i*measure_map_.info.width + j] = 100;
             else
-              measure_map.data[i*measure_map.info.width + j] = -1;
+              measure_map_.data[i*measure_map_.info.width + j] = -1;
           }
         }
       }
       ROS_INFO("READ MEASURE MAP:");
-      for(int i = 0 ; i < measure_map.info.height ; i++)
+      for(int i = 0 ; i < measure_map_.info.height ; i++)
       {
-        for(int j = 0 ; j < measure_map.info.width; j++)
+        for(int j = 0 ; j < measure_map_.info.width; j++)
         {
-          distance = sqrt(pow(grid_y-i,2)+pow(grid_x-j,2))*measure_map.info.resolution;
-          if ((map.data[i*map.info.width + j] == -1) || (map.data[i*map.info.width + j] > 90))
-            measure_map.data[i*measure_map.info.width + j] = 100;
+          distance = sqrt(pow(grid_y_-i,2)+pow(grid_x_-j,2))*measure_map_.info.resolution;
+          if ((map_.data[i*map_.info.width + j] == -1) || (map_.data[i*map_.info.width + j] > 90))
+            measure_map_.data[i*measure_map_.info.width + j] = 100;
           else if (distance <= measure_ratio)
-            measure_map.data[i*measure_map.info.width + j] = 0;
-          else if (measure_map.data[i*measure_map.info.width + j] != 0)
-            measure_map.data[i*measure_map.info.width + j] = -1;
+            measure_map_.data[i*measure_map_.info.width + j] = 0;
+          else if (measure_map_.data[i*measure_map_.info.width + j] != 0)
+            measure_map_.data[i*measure_map_.info.width + j] = -1;
         }
       }
       int radius = 6;
-      for(int i = 0 ; i < measure_map.info.height ; i++)
+      for(int i = 0 ; i < measure_map_.info.height ; i++)
       {
-        for(int j = 0 ; j < measure_map.info.width; j++)
+        for(int j = 0 ; j < measure_map_.info.width; j++)
         {
-          if (map.data[i*map.info.width + j] > 90)
+          if (map_.data[i*map_.info.width + j] > 90)
           {
             for(int k = i-radius; k <= i+radius; k++)
             {
               for(int l = j-radius; l <= j+radius; l++)
               {
-                if((k < measure_map.info.height) && (l < measure_map.info.width) && (k > 0) && (l > 0) && (measure_map.data[k*measure_map.info.width + l] != 0))
-                  measure_map.data[k*measure_map.info.width + l] = 100;
+                if((k < measure_map_.info.height) && (l < measure_map_.info.width) && (k > 0) && (l > 0) && (measure_map_.data[k*measure_map_.info.width + l] != 0))
+                  measure_map_.data[k*measure_map_.info.width + l] = 100;
               }
             }
           }
         }
       }
-      measure_map_file.open("measure_map.txt");
-      if(measure_map_file.is_open())
+      measure_map_file_.open("measure_map.txt");
+      if(measure_map_file_.is_open())
       {
         ROS_INFO("MEASURE MAP FILE OPENED");
-        for(int j = measure_map.info.width-1; j >= 0; j--)
+        for(int j = measure_map_.info.width-1; j >= 0; j--)
         {
-          for(int i = measure_map.info.height-1; i >= 0; i--)
+          for(int i = measure_map_.info.height-1; i >= 0; i--)
           {
-            if (measure_map.data[i*measure_map.info.width + j] == 100)
-              measure_map_file<<"*\t";
-            else if (measure_map.data[i*measure_map.info.width + j] == -1)
-              measure_map_file<<" \t";
-            else if (measure_map.data[i*measure_map.info.width + j] == 0)
-              measure_map_file<<"·\t";
+            if (measure_map_.data[i*measure_map_.info.width + j] == 100)
+              measure_map_file_<<"*\t";
+            else if (measure_map_.data[i*measure_map_.info.width + j] == -1)
+              measure_map_file_<<" \t";
+            else if (measure_map_.data[i*measure_map_.info.width + j] == 0)
+              measure_map_file_<<"·\t";
           }
-          measure_map_file <<"\n";
+          measure_map_file_ <<"\n";
         }
-        measure_map_file.close();
+        measure_map_file_.close();
       }
       else
         ROS_INFO("ERROR WITH MAP FILE");
-      pub_measure_map.publish(measure_map);
+      pub_measure_map_.publish(measure_map_);
     } 
     
     // CONTROL //
     void control()
     {
-      if(sequence == 0)
+      if(sequence_ == 0)
       {
         ROS_INFO("WAITING");
         //
-        //fnPrintPose(scan_pose.pose, "SCAN");
-        ROS_INFO("SCAN POSE HEADER FRAME ID: %s", scan_pose.header.frame_id.c_str());
-        if(scan_pose.header.frame_id == "map")
+        //fnPrintPose(scan_pose_.pose, "SCAN");
+        ROS_INFO("SCAN POSE HEADER FRAME ID: %s", scan_pose_.header.frame_id.c_str());
+        if(scan_pose_.header.frame_id == "map")
         {
-          fnPrintPose(scan_pose.pose, "SCAN");
-          mt = ros::Time::now();
+          fnPrintPose(scan_pose_.pose, "SCAN");
+          mt_ = ros::Time::now();
           fnMeasure();
-          sequence = 3;
+          sequence_ = 3;
           ROS_INFO("DOING MEASURING");
-          fnWait(debug);
+          fnWait(debug_);
         }
       }
-      if(sequence == 1) //Reading Goal
+      if(sequence_ == 1) //Reading Goal
       {
-        if (goal_published == true)
+        if (goal_published_ == true)
         {
           ROS_INFO("GOAL PUBLISHED");
-          fnPrintPose(goal_pose.pose,"GOAL");
-          fnPrintPose(scan_pose.pose,"SCAN");
-          sequence = 2;
+          fnPrintPose(goal_pose_.pose,"GOAL");
+          fnPrintPose(scan_pose_.pose,"SCAN");
+          sequence_ = 2;
           ROS_INFO("REACHING GOAL");
-          goal_published = false;
-          new_goal = false;
-          fnWait(debug);
+          goal_published_ = false;
+          new_goal_ = false;
+          fnWait(debug_);
         }
         else
           fnPubGoal(2);
           
       }
-      else if (sequence == 2) //Reaching Goal
+      else if (sequence_ == 2) //Reaching Goal
       {
-        if(goal_status == 3)
+        if(goal_status_ == 3)
         {
           ROS_INFO("GOAL REACHED");
-          mt = ros::Time::now();
+          mt_ = ros::Time::now();
           fnMeasure();
-          sequence = 3;
+          sequence_ = 3;
           ROS_INFO("DOING MEASURING");
-          fnWait(debug);
+          fnWait(debug_);
         }
-        else if (goal_status == 4)
+        else if (goal_status_ == 4)
         {
           ROS_INFO("GOAL IMPOSSIBLE TO REACH");
-          mt = ros::Time::now();
+          mt_ = ros::Time::now();
           fnMeasure();
-          sequence = 3;
+          sequence_ = 3;
           ROS_INFO("DOING MEASURING");
-          fnWait(debug);
+          fnWait(debug_);
         }
       }
-      else if (sequence == 3) //Measuring
+      else if (sequence_ == 3) //Measuring
       {
-        if (measure_done)
+        if (measure_done_)
         {
           ROS_INFO("MEASURE DONE");
-          sequence = 1;
+          sequence_ = 1;
           ROS_INFO("SEARCHING NEW GOAL");
-          fnWait(debug);
+          fnWait(debug_);
         }
         else
         {
@@ -497,54 +506,54 @@ class Brain
     }
     
   private:
-    ros::NodeHandle n;
-    
-    // SCAN POSE //
-    tf2_ros::TransformListener tf2_;
+    ros::NodeHandle n_;
+
+    // SCAN POSE
     tf2_ros::Buffer buffer_;
-    geometry_msgs::PoseStamped base_scan_pose;
-    geometry_msgs::PoseStamped scan_pose;
-    ros::Publisher pub_scan_pose;
-    
-    // MAP //
-    ros::Subscriber sub_map;
-    nav_msgs::OccupancyGrid map;
-    int grid_x;
-    int grid_y;
-    nav_msgs::OccupancyGrid local_map;
-    float local_map_resolution = 0.05;
-    int local_map_size = 60;
-    ofstream map_file;
-    ofstream local_map_file;
-    ros::Publisher pub_local_map;
+    tf2_ros::TransformListener tf2_{buffer_};
+    geometry_msgs::PoseStamped base_scan_pose_;
+    geometry_msgs::PoseStamped scan_pose_;
+    ros::Publisher pub_scan_pose_;
 
-    // NAVIGATION //
-    geometry_msgs::PoseStamped goal_pose;
-    bool flag = true;
-    ros::Publisher pub_goal;
-    ros::Subscriber sub_status;
-    ros::Subscriber sub_goal;
-    bool goal_published = false;
+    // MAP
+    ros::Subscriber sub_map_;
+    nav_msgs::OccupancyGrid map_;
+    int grid_x_ = 0;
+    int grid_y_ = 0;
+    nav_msgs::OccupancyGrid local_map_;
+    float local_map_resolution_ = 0.05;
+    int local_map_size_ = 60;
+    ofstream map_file_;
+    ofstream local_map_file_;
+    ros::Publisher pub_local_map_;
 
-    // MEASURE //
-    ros::Time mt;
-    nav_msgs::OccupancyGrid measure_map;
-    ros::Publisher pub_measure_map;
-    ofstream measure_map_file;
-    
-    // CONTROL //
-    int sequence = 0;
-    bool new_goal = false;
-    int goal_status = false;
-    bool measure_done = false;
-    bool debug = false;
+    // NAVIGATION
+    geometry_msgs::PoseStamped goal_pose_;
+    ros::Publisher pub_goal_;
+    ros::Subscriber sub_status_;
+    int goal_status_ = 0;
+    ros::Subscriber sub_goal_;
+    bool goal_published_ = false;
+    bool flag_ = true;
+    static constexpr double PI = 3.14159265358979323846;
+
+    // MEASURE
+    ros::Time mt_{0, 0};
+    nav_msgs::OccupancyGrid measure_map_;
+    ros::Publisher pub_measure_map_;
+    ofstream measure_map_file_;
+
+    // CONTROL
+    int sequence_ = 0;
+    bool new_goal_ = false;
+    bool measure_done_ = false;
+    bool debug_ = false;
 };
 
 int main(int argc, char **argv)
 {
   ros::init(argc, argv, "brain");
   Brain brain;
-  //ros::spin();
   return 0;
 }
 
