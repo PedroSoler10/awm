@@ -23,6 +23,8 @@
 #include <string>
 
 using std::string;
+using std::ofstream;
+using std::to_string;
 
 class Brain {
  public:
@@ -237,10 +239,10 @@ class Brain {
           goal_angle_tf.setRPY(0, 0, a * PI / 180);
           geometry_msgs::Quaternion goal_angle;
           goal_angle = tf2::toMsg(goal_angle_tf);
-          goal_pose_.pose.orientation.x = <double>(goal_angle.x);
-          goal_pose_.pose.orientation.y = <double>(goal_angle.y);
-          goal_pose_.pose.orientation.z = <double>(goal_angle.z);
-          goal_pose_.pose.orientation.w = <double>(goal_angle.w);
+          goal_pose_.pose.orientation.x = goal_angle.x;
+          goal_pose_.pose.orientation.y = goal_angle.y;
+          goal_pose_.pose.orientation.z = goal_angle.z;
+          goal_pose_.pose.orientation.w = goal_angle.w;
           pub_goal_.publish(goal_pose_);
           goal_published_ = true;
         }
@@ -297,7 +299,8 @@ class Brain {
       // Local wall-clock time, e.g. "2026-10-21T10-30-05".
       // Colons are avoided so the file name also works on Windows.
       time_t now = time(nullptr);
-      tm local_time = *localtime_r(&now);
+      tm local_time;
+      localtime_r(&now, &local_time);
       char time_buffer[32];
       strftime(time_buffer, sizeof(time_buffer), "%Y-%m-%dT%H-%M-%S", &local_time);
       string iso_time_str = time_buffer;
