@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<!--
+  Modular pipeline (experimental): the goal is not searched inside the brain but asked from a
+  service. Starts map_processing (/map -> /safe_map), points_identification (/goal_points service)
+  and brainT (state machine that calls the service; it runs as node "brain").
+
+  It needs the robot, SLAM and navigation running, and the standalone brain off:
+    roslaunch awm awm.launch brain:=false
+    roslaunch awm modular.launch
+  goal_mode: 1 EXPLORATION (frontiers), 2 MEASUREMENT (nearest unmeasured cell), 3 FUSION.
+-->
+<launch>
+  <arg name="goal_mode" default="3" doc="goal mode asked from /goal_points [1 EXPLORATION, 2 MEASUREMENT, 3 FUSION]"/>
+
+  <node pkg="awm" type="map_processing" name="map_processing" output="screen"/>
+  <node pkg="awm" type="points_identification" name="points_identification" output="screen"/>
+  <node pkg="awm" type="brainT" name="brain" output="screen">
+    <param name="goal_mode" value="$(arg goal_mode)"/>
+  </node>
+</launch>

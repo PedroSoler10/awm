@@ -6,550 +6,295 @@
  * See the LICENSE file at the root of this repository for the full text.
  */
 
-#include "ros/ros.h"
-#include "stdio.h"
-#include <string>
-#include <math.h>
-#include "fstream"
-#include "tf2_ros/transform_listener.h"
-#include "tf2_geometry_msgs/tf2_geometry_msgs.h"
-#include "geometry_msgs/PoseStamped.h"
-#include "nav_msgs/OccupancyGrid.h"
-#include "move_base_msgs/MoveBaseActionResult.h"
-#include "actionlib_msgs/GoalStatusArray.h"
-#include "boost/date_time/posix_time/posix_time.hpp"
+/*
+ * brainT: the modular version of brain (ROS 1 Noetic, TurtleBot3 + SLAM + move_base).
+ *
+ * Same state machine as brain, but the goal is not searched here: it is asked from the
+ * /goal_points service of points_identification. The node is still called "brain", so the topics
+ * are the same and only one of brain / brainT can run at a time.
+ *
+ * Repeatedly: ask /goal_points for the best goal, send it to move_base, wait until move_base
+ * finishes, stand still for a few seconds taking a "measurement", and start over. An empty answer
+ * means there is nothing left to do. brainT does NOT drive the motors: move_base does.
+ *
+ * Needs running: map_processing (/safe_map), points_identification (/goal_points), see
+ * launch/modular.launch.
+ * Subscribes: /safe_map           (nav_msgs/OccupancyGrid)         map with the caution band
+ *             /move_base/status   (actionlib_msgs/GoalStatusArray) state of the goals
+ * Publishes:  /move_base_simple/goal (geometry_msgs/PoseStamped)   next goal for move_base
+ *             /scan_pose          (geometry_msgs/PoseStamped)      robot pose in the "map" frame
+ *             /measure_map        (nav_msgs/OccupancyGrid, latched) what has been measured so far
+ * Calls:      /goal_points        (awm/GoalPoints)
+ * Private params (defaults in brackets):
+ *   ~goal_mode [3] mode sent to /goal_points (1 EXPLORATION, 2 MEASUREMENT, 3 FUSION),
+ *   ~measure_duration_s [3.0], ~measure_radius_m [0.5], ~output_dir [.] for the measurement files
+ *
+ * The measure map has the meaning described in awm/measure_map.h. It is built on /safe_map, where
+ * caution cells (value 50) already are the margin around obstacles, so they are blocked and never
+ * become goals.
+ */
+
+#include <actionlib_msgs/GoalStatusArray.h>
+#include <geometry_msgs/PoseStamped.h>
+#include <nav_msgs/OccupancyGrid.h>
+#include <ros/ros.h>
 #include <tf2/LinearMath/Quaternion.h>
-#define PI 3.14159265
-using namespace std;
+#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 
-class Brain
-{
-  public:
-    Brain() :
-    tf2_(buffer_)    
-    {
-      // INITIALIZATION
-      init();
-      ROS_INFO("INITIALIZATION DONE");
-      wait(debug);
-      //ros::Duration(5).sleep();
-      ROS_INFO("STARTING PROGRAM");
-      ros::Time timer = ros::Time::now();
-      // LOOP
-      ros::Rate loop_rate(10);
-      
-      while ( ros::ok())// && ( ( ros::Time::now().toSec() - timer.toSec() ) < 5 ) )
-      {
-        // STATE MACHINE
-        control();
-        ros::spinOnce();
-        loop_rate.sleep();
-      }
-      //fnReadScanPose();
-      //pub_goal.publish(scan_pose);
+#include <cmath>
+#include <cstdint>
+#include <string>
+
+#include "awm/GoalPoints.h"
+#include "awm/grid.h"
+#include "awm/measure_map.h"
+#include "awm/robot_pose.h"
+#include "awm/safe_map.h"
+
+class BrainT {
+ public:
+  // The constructor only sets up. The program itself runs in run().
+  BrainT() {
+    ros::NodeHandle pnh("~");
+    int goal_mode;
+    pnh.param("goal_mode", goal_mode, static_cast<int>(awm::GoalPoints::Request::FUSION));
+    pnh.param("measure_duration_s", measure_duration_s_, 3.0);
+    pnh.param("measure_radius_m", measure_params_.measure_radius_m, 0.5);
+    pnh.param("output_dir", output_dir_, std::string("."));
+
+    using Request = awm::GoalPoints::Request;
+    if (goal_mode != Request::EXPLORATION && goal_mode != Request::MEASUREMENT &&
+        goal_mode != Request::FUSION) {
+      ROS_FATAL("~goal_mode must be 1 (EXPLORATION), 2 (MEASUREMENT) or 3 (FUSION), got %d",
+                goal_mode);
+      ros::shutdown();
+      return;
     }
-    void init()
-    {
-      // SCAN POSE
-      sub_scan_pose = n.subscribe("/scan_pose", 100, &Brain::scanPoseCallback, this);
-      
-      // MAP //
-      sub_map = n.subscribe("/map", 10, &Brain::mapCallback, this);
-      sub_safe_map = n.subscribe("/safe_map", 10, &Brain::mapCallback, this);
-      sub_task_map = n.subscribe("/task_map", 10, &Brain::mapCallback, this);
-      local_map.header.frame_id = "map";
-      local_map.info.resolution = local_map_resolution;
-      local_map.info.width = local_map_size+1;
-      local_map.info.height = local_map_size+1;
-      local_map.info.origin.orientation.w = 1;
-      pub_local_map = n.advertise<nav_msgs::OccupancyGrid>("/local_map", 100);
-      pub_task_map = n.advertise<nav_msgs::OccupancyGrid>("/task_map", 100);
-      
-      // NAVIGATION //
-      goal_pose.header.frame_id = "map";
-      pub_goal = n.advertise<geometry_msgs::PoseStamped>("/move_base_simple/goal", 1);
-      sub_status = n.subscribe("/move_base/status", 10, &Brain::statusCallback, this);
-      sub_goal = n.subscribe("/move_base_simple/goal", 100, &Brain::goalCallback, this);
-      
-      // TASK //
-      pub_task_pose = n.advertise<geometry_msgs::PoseStamped>("/task_pose",1);
+    goal_mode_ = static_cast<std::uint8_t>(goal_mode);
+
+    // The safe map already holds the margin around obstacles (value 50), so cells above
+    // kSafeCaution - 1 are blocked and no extra inflation is needed.
+    measure_params_.occupied_threshold = awm::kSafeCaution - 1;
+    measure_params_.inflate_radius_cells = 0;
+
+    pub_scan_pose_ = n_.advertise<geometry_msgs::PoseStamped>("/scan_pose", 100);
+    pub_measure_map_ = n_.advertise<nav_msgs::OccupancyGrid>("/measure_map", 100, true);
+    pub_goal_ = n_.advertise<geometry_msgs::PoseStamped>("/move_base_simple/goal", 1);
+    sub_safe_map_ = n_.subscribe("/safe_map", 10, &BrainT::safeMapCallback, this);
+    sub_status_ = n_.subscribe("/move_base/status", 10, &BrainT::statusCallback, this);
+    ROS_INFO("INITIALIZATION DONE");
+  }
+
+  void run() {
+    // Each pass processes pending callbacks, then runs one step of the state machine.
+    // 10 Hz: fast enough for the controller, slow enough to keep CPU load low.
+    ros::Rate loop_rate(10);
+    while (ros::ok()) {
+      ros::spinOnce();
+      control();
+      loop_rate.sleep();
     }
-    
-    // SCAN POSE //
-    void scanPoseCallback(geometry_msgs::PoseStamped sp)
-    {
-      scan_pose = sp;
-      grid_x = round((scan_pose.pose.position.x - map.info.origin.position.x) / map.info.resolution);
-      grid_y = round((scan_pose.pose.position.y - map.info.origin.position.y) / map.info.resolution);
+  }
+
+ private:
+  // WAITING (once) -> MEASURING -> CHOOSING_GOAL -> REACHING_GOAL -> MEASURING -> ... -> DONE
+  // CHOOSING_GOAL is separate from MEASURING because the measurement must be recorded only once,
+  // while asking for a goal may have to be repeated until the service is there.
+  enum class State { WAITING, MEASURING, CHOOSING_GOAL, REACHING_GOAL, DONE };
+
+  // Result of asking /goal_points for a goal.
+  enum class GoalResult { SENT, NOTHING_LEFT, SERVICE_UNAVAILABLE };
+
+  // CALLBACKS //
+  void safeMapCallback(const nav_msgs::OccupancyGrid::ConstPtr& msg) { safe_map_ = *msg; }
+
+  // move_base publishes the state of all recent goals. We want the state of OUR latest goal.
+  void statusCallback(const actionlib_msgs::GoalStatusArray::ConstPtr& st) {
+    const actionlib_msgs::GoalStatus* latest = nullptr;
+    for (const actionlib_msgs::GoalStatus& s : st->status_list) {
+      // Goals older than the one we sent are history (e.g. the previous goal, still listed for a
+      // few seconds as SUCCEEDED). Ignoring them avoids a false "goal reached". This assumes
+      // move_base stamps the goal with the time it received it.
+      if (s.goal_id.stamp < goal_sent_time_) continue;
+      if (latest == nullptr || s.goal_id.stamp > latest->goal_id.stamp) latest = &s;
     }
-    
-    // MAP //
-    void mapCallback(const nav_msgs::OccupancyGrid m)
-    {
-      map = m;
-    }
-    
-    // EXPLORE MAP //
-    void safeMapCallback(const nav_msgs::OccupancyGrid em)
-    {
-      safe_map = em;
-    }
-    
-    // TASK MAP //
-    void taskMapCallback(const nav_msgs::OccupancyGrid mm)
-    {
-      task_map = mm;
-    }
-    // NAVIGATION //
-    void pubGoal(int mode)
-    {
-      if (goal_published == false)
-      {
-        ROS_INFO("IDENTIFYING GOAL");
-        if (mode == 0)
-        {
-          
-        }
-        else if (mode == 1)
-        {
-          goal_pose = scan_pose;
-          if (flag)
-            goal_pose.pose.position.x += 1;
-          else
-            goal_pose.pose.position.x -= 0.75;
-            flag = !flag;
-            goal_pose.pose.orientation.x = 0;
-            goal_pose.pose.orientation.y = 0;
-            goal_pose.pose.orientation.z = 0;
-            goal_pose.pose.orientation.w = 1;
-            pub_goal.publish(goal_pose);
-            goal_published = true;
-        }
-        else if (mode == 2)
-        {
-          int r_min = 0;
-          int r_max = 0;
-          int r_step = 10;
-          int r_lim = 200;
-          int i;
-          int j;
-          int d;
-          int a;
-          int i_min = grid_y;
-          int j_min = grid_x;
-          int d_min = r_lim + 1;
-          int a_min = 0;
-          
-          while (d_min > r_max)
-          {
-            r_min = r_max;
-            r_max += r_step;
-            d = r_min;
-            do
-            {
-              a = 0;
-              do
-              {
-                i = round(grid_y + d*sin(a*PI/180));
-                j = round(grid_x + d*cos(a*PI/180));
-                if((i > task_map.info.height) || (j > task_map.info.width) || (i < 0) || (j < 0))
-                {
-                  i = grid_y;
-                  j = grid_x;
-                }
-                a++;
-                //ROS_INFO("GOAL OPTION:\nX: %d Y: %d DATA: %d", j, i, task_map.data[i*task_map.info.width + j]);
-              }
-              while ((task_map.data[i*task_map.info.width + j] != -1) && (a < 360));
-              d++;
-            }
-            while ((task_map.data[i*task_map.info.width + j] != -1) && (d < r_max));
-            a--;
-            d--;
-            if (task_map.data[i*task_map.info.width + j] == -1)
-            {
-              i_min = i;
-              j_min = j;
-              d_min = d;
-              a_min = a;
-              ROS_INFO("I_MIN: %d J_MIN: %d D_MIN: %d A_MIN: %d ",i_min,j_min,d_min,a_min);
-            }
-          }
-          if((i_min == grid_x) && (j_min == grid_y) && (d_min == r_lim + 1) && (a_min == 0))
-          {
-            ROS_INFO("EVERYTHING TASKD");
-          }
-          else
-          {
-            goal_pose = scan_pose;
-            goal_pose.pose.position.x = j_min * task_map.info.resolution + task_map.info.origin.position.x;
-            goal_pose.pose.position.y = i_min * task_map.info.resolution + task_map.info.origin.position.y;
-            tf2::Quaternion goal_angle_tf;
-            goal_angle_tf.setRPY(0, 0, a*PI/180);
-            geometry_msgs::Quaternion goal_angle;
-            goal_angle = tf2::toMsg(goal_angle_tf);
-            goal_pose.pose.orientation.x = double(goal_angle.x);
-            goal_pose.pose.orientation.y = double(goal_angle.y);
-            goal_pose.pose.orientation.z = double(goal_angle.z);
-            goal_pose.pose.orientation.w = double(goal_angle.w);
-            pub_goal.publish(goal_pose);
-            goal_published = true;
-          }
-        }
-      }
-      else
-        ROS_INFO("GOAL ALREADY PUBLISHED");
-    }
-    void statusCallback(const actionlib_msgs::GoalStatusArray::ConstPtr& st)
-    {
-      if(!st->status_list.empty())
-      {
-        if ((st->status_list[1].status >= 0) && (st->status_list[1].status <= 9) && (st->status_list[0].goal_id.stamp.sec < st->status_list[1].goal_id.stamp.sec) && (st->status_list[0].goal_id.stamp.nsec < st->status_list[1].goal_id.stamp.nsec))
-          if ((st->status_list[2].status >= 0) && (st->status_list[2].status <= 9) && (st->status_list[1].goal_id.stamp.sec < st->status_list[2].goal_id.stamp.sec) && (st->status_list[1].goal_id.stamp.nsec < st->status_list[2].goal_id.stamp.nsec))
-            goal_status = st->status_list[2].status;
-          else
-            goal_status = st->status_list[1].status;
-        else
-          goal_status = st->status_list[0].status;
-       
-       if (goal_status < 3)
-          goal_published = true;   
-      
-       //ROS_INFO("STATUS  : %d",goal_status);
-       //ROS_INFO("STATUS 0: %d TIME: %d.%d", st->status_list[0].status, st->status_list[0].goal_id.stamp.sec, st->status_list[0].goal_id.stamp.nsec);
-       //ROS_INFO("STATUS 1: %d TIME: %d.%d", st->status_list[1].status, st->status_list[1].goal_id.stamp.sec, st->status_list[1].goal_id.stamp.nsec);
-       //ROS_INFO("STATUS 2: %d TIME: %d.%d", st->status_list[2].status, st->status_list[2].goal_id.stamp.sec, st->status_list[2].goal_id.stamp.nsec);
-      }
-    }
-    void goalCallback(const geometry_msgs::PoseStamped msg)
-    {
-      /*if ((goal_pose.pose.position.x != msg.pose.position.x) || (goal_pose.pose.position.y != msg.pose.position.y))
-      {
-        goal_pose = msg;
-        goal_published = true;
-        new_goal = true;
-      }
-      else
-        new_goal = false;*/
+    if (latest != nullptr) goal_status_ = latest->status;
+  }
+
+  // CONTROL //
+
+  // One step of the state machine, called at 10 Hz from run().
+  void control() {
+    // Every state needs the robot pose and a map; until both exist SLAM or tf are not up yet.
+    if (!readScanPose() || safe_map_.data.empty()) {
+      ROS_INFO_THROTTLE(1.0, "WAITING FOR SAFE MAP AND SCAN POSE");
+      return;
     }
 
-    // TASK //
-    void doTask()
-    {
-      ros::Duration d(3.0);
-      ros::Time n = ros::Time::now();
-      
-      if ((n - tt) < d)
-        task_done = false;
-      else
-      {
-        ros::WallDuration two_hours = ros::WallDuration(2*60*60);
-        ros::WallTime n = ros::WallTime::now() + two_hours;
-        boost::posix_time::ptime my_posix_time = n.toBoost();
-        string iso_time_str = boost::posix_time::to_iso_extended_string(my_posix_time);
-        //fnReadScanPose();
-        ROS_INFO("TASK DATA:\nx: %f y: %f t: %s", 
-          scan_pose.pose.position.x,
-          scan_pose.pose.position.y,
-          iso_time_str.c_str());
-        string f_n = to_string(scan_pose.pose.position.x)+"_"+
-                     to_string(scan_pose.pose.position.y)+"_"+
-                     iso_time_str+".txt";
-        ofstream m_f;
-        m_f.open(f_n);
-        m_f.close();
-        updateTaskMap();
-        task_done = true;
-      }
-    }
-    
-    void updateTaskMap()
-    {
-      task_map.header.stamp = ros::Time::now();
-      double distance;
-      float task_ratio = 0.5;
-      ROS_INFO("UPDATE TASK MAP");
-      if(task_map.info.width != map.info.width)
-      {
-        if (remove("task_map.txt") == 0)
-          ROS_INFO("OLD TASK MAP DELETED");
-        else
-          ROS_INFO("OLD TASK MAP NOT DELETED");
-        task_map = map;
-        for(int i = 0 ; i < task_map.info.height ; i++)
-        {
-          for(int j = 0 ; j < task_map.info.width; j++)
-          {
-            if ((map.data[i*map.info.width + j] == -1) || (map.data[i*map.info.width + j] > 90))
-              task_map.data[i*task_map.info.width + j] = 100;
-            else
-              task_map.data[i*task_map.info.width + j] = -1;
-          }
-        }
-      }
-      ROS_INFO("READ TASK MAP:");
-      for(int i = 0 ; i < task_map.info.height ; i++)
-      {
-        for(int j = 0 ; j < task_map.info.width; j++)
-        {
-          distance = sqrt(pow(grid_y-i,2)+pow(grid_x-j,2))*task_map.info.resolution;
-          if ((map.data[i*map.info.width + j] == -1) || (map.data[i*map.info.width + j] > 90))
-            task_map.data[i*task_map.info.width + j] = 100;
-          else if (distance <= task_ratio)
-            task_map.data[i*task_map.info.width + j] = 0;
-          else if (task_map.data[i*task_map.info.width + j] != 0)
-            task_map.data[i*task_map.info.width + j] = -1;
-        }
-      }
-      int radius = 6;
-      for(int i = 0 ; i < task_map.info.height ; i++)
-      {
-        for(int j = 0 ; j < task_map.info.width; j++)
-        {
-          if (map.data[i*map.info.width + j] > 90)
-          {
-            for(int k = i-radius; k <= i+radius; k++)
-            {
-              for(int l = j-radius; l <= j+radius; l++)
-              {
-                if((k < task_map.info.height) && (l < task_map.info.width) && (k > 0) && (l > 0) && (task_map.data[k*task_map.info.width + l] != 0))
-                  task_map.data[k*task_map.info.width + l] = 100;
-              }
-            }
-          }
-        }
-      }
-      std::ofstream m_f;
-      m_f.open("task_map.txt");
-      if(m_f.is_open())
-      {
-        ROS_INFO("TASK MAP FILE OPENED");
-        for(int j = task_map.info.width-1; j >= 0; j--)
-        {
-          for(int i = task_map.info.height-1; i >= 0; i--)
-          {
-            if (task_map.data[i*task_map.info.width + j] == 100)
-              m_f<<"*\t";
-            else if (task_map.data[i*task_map.info.width + j] == -1)
-              m_f<<" \t";
-            else if (task_map.data[i*task_map.info.width + j] == 0)
-              m_f<<"·\t";
-          }
-          m_f <<"\n";
-        }
-        m_f.close();
-      }
-      else
-        ROS_INFO("ERROR WITH MAP FILE");
-      pub_task_map.publish(task_map);
-    } 
-    
-    // CONTROL //
-    void control()
-    {
-      if(sequence == 0)
-      {
-        ROS_INFO("WAITING");
-        //printPose(scan_pose.pose, "SCAN");
-        if(scan_pose.header.frame_id == "map")
-        {
-          printPose(scan_pose.pose, "SCAN");
-          tt = ros::Time::now();
-          doTask();
-          sequence = 3;
-          ROS_INFO("DOING TASK");
-          wait(debug);
-        }
-      }
-      if(sequence == 1) //Reading Goal
-      {
-        if (goal_published == true)
-        {
-          ROS_INFO("GOAL PUBLISHED");
-          printPose(goal_pose.pose,"GOAL");
-          printPose(scan_pose.pose,"SCAN");
-          sequence = 2;
-          ROS_INFO("REACHING GOAL");
-          goal_published = false;
-          new_goal = false;
-          wait(debug);
-        }
-        else
-          pubGoal(2);
-          
-      }
-      else if (sequence == 2) //Reaching Goal
-      {
-        if(goal_status == 3)
-        {
-          ROS_INFO("GOAL REACHED");
-          tt = ros::Time::now();
-          doTask();
-          sequence = 3;
-          ROS_INFO("DOING TASK");
-          wait(debug);
-        }
-        else if (goal_status == 4)
-        {
-          ROS_INFO("GOAL IMPOSSIBLE TO REACH");
-          tt = ros::Time::now();
-          doTask();
-          sequence = 3;
-          ROS_INFO("DOING TASK");
-          wait(debug);
-        }
-      }
-      else if (sequence == 3) //Measuring
-      {
-        if (task_done)
-        {
-          ROS_INFO("TASK DONE");
-          sequence = 1;
-          ROS_INFO("SEARCHING NEW GOAL");
-          wait(debug);
-        }
-        else
-        {
-          doTask();
-        }
-      }
-    }
-void wait(bool d)
-    {
-      if(d)
-      {
-        printf("\nPRESS ENTER TO CONTINUE");
-        char c;
-        scanf("%c",&c);
-      }
-    }
-    
-    void initStampedPose(geometry_msgs::PoseStamped &p, const char* s)
-    {
-      p.header.frame_id = s;
-      p.header.stamp = ros::Time::now();
-      initPose(p.pose);
-    }
-    
-    void initPose(geometry_msgs::Pose &p)
-    {
-      p.position.x = 0;
-      p.position.y = 0;
-      p.position.z = 0;
-      p.orientation.x = 0;
-      p.orientation.y = 0;
-      p.orientation.z = 0;
-      p.orientation.w = 1;
-    }
-    
-    void printStampedPose(geometry_msgs::PoseStamped p, const char* s)
-    {
-      ROS_INFO("PRINT STAMPED POSE: %s \n\tFRAME_ID: %s \n\tSTAMP: \n\t\tsec: %d \n\t\tnsec: %d",
-          s,
-          p.header.frame_id.c_str(),
-          p.header.stamp.sec,
-          p.header.stamp.nsec);
-       printPose(p.pose, s);
-    }
-    
-    void printPose(geometry_msgs::Pose p, const char* s)
-    {
-      ROS_INFO("PRINT POSE: %s \nPOSE: \n\tPOSITION: \n\t\tx:%f \n\t\ty:%f \n\t\tz:%f \n\tORIENTATION: \n\t\tx:%f \n\t\ty:%f \n\t\tz:%f \n\t\tw:%f",
-          s,
-          p.position.x,
-          p.position.y,
-          p.position.z,
-          p.orientation.x,
-          p.orientation.y,
-          p.orientation.z,
-          p.orientation.w);
-    }
-    
-  private:
-    ros::NodeHandle n;
-    
-    // SCAN POSE //
-    tf2_ros::TransformListener tf2_;
-    tf2_ros::Buffer buffer_;
-    geometry_msgs::PoseStamped base_scan_pose;
-    geometry_msgs::PoseStamped scan_pose;
-    ros::Subscriber sub_scan_pose;
-    
-    // MAP //
-    ros::Subscriber sub_map;
-    nav_msgs::OccupancyGrid map;
-    ros::Subscriber sub_safe_map;
-    nav_msgs::OccupancyGrid safe_map;
-    int grid_x;
-    int grid_y;
-    nav_msgs::OccupancyGrid local_map;
-    float local_map_resolution = 0.05;
-    int local_map_size = 60;
-    ros::Publisher pub_local_map;
+    switch (state_) {
+      case State::WAITING:
+        startMeasuring();
+        break;
 
-    // NAVIGATION //
-    geometry_msgs::PoseStamped goal_pose;
-    bool flag = true;
-    ros::Publisher pub_goal;
-    ros::Subscriber sub_status;
-    ros::Subscriber sub_goal;
-    bool goal_published = false;
+      case State::MEASURING:
+        if (measure()) state_ = State::CHOOSING_GOAL;
+        break;
 
-    // TASK //
-    ros::Time tt;
-    ros::Subscriber sub_task_map;
-    nav_msgs::OccupancyGrid task_map;
-    ros::Publisher pub_task_pose;
-    ros::Publisher pub_task_map;
-    
-    // CONTROL //
-    int sequence = 0;
-    bool new_goal = false;
-    int goal_status = false;
-    bool task_done = false;
-    bool debug = false;
+      case State::CHOOSING_GOAL:
+        switch (requestGoal()) {
+          case GoalResult::SENT:
+            state_ = State::REACHING_GOAL;
+            break;
+          case GoalResult::NOTHING_LEFT:
+            ROS_INFO("NO MORE GOAL POINTS");
+            state_ = State::DONE;
+            break;
+          case GoalResult::SERVICE_UNAVAILABLE:
+            break;  // Try again on the next tick.
+        }
+        break;
+
+      case State::REACHING_GOAL:
+        if (goalFinished(goal_status_)) {
+          ROS_INFO(
+              "GOAL %s (status %d)",
+              goal_status_ == actionlib_msgs::GoalStatus::SUCCEEDED ? "REACHED" : "NOT REACHED",
+              goal_status_);
+          // Mark the area around the goal as measured. If the goal could not be reached, this
+          // stops the same cell from being chosen again and again.
+          int goal_x;
+          int goal_y;
+          awm::worldToGrid(measure_map_, goal_pose_.pose, &goal_x, &goal_y);
+          awm::markDisk(&measure_map_, goal_x, goal_y, measure_params_.measure_radius_m,
+                        awm::kMeasured, awm::kBlocked);
+          startMeasuring();
+        }
+        break;
+
+      case State::DONE:
+        break;
+    }
+  }
+
+  // ACTIONS //
+
+  // Enters the MEASURING state: the robot stays still for measure_duration_s_ seconds.
+  void startMeasuring() {
+    ROS_INFO("DOING MEASURING");
+    measure_start_ = ros::Time::now();
+    state_ = State::MEASURING;
+  }
+
+  // Called every tick while MEASURING. Returns true once the robot has been still long enough and
+  // the measurement has been recorded.
+  bool measure() {
+    if ((ros::Time::now() - measure_start_) < ros::Duration(measure_duration_s_)) return false;
+
+    std::string file_name;
+    const bool written = awm::writeMeasurementFile(output_dir_, scan_pose_.pose, &file_name);
+    ROS_INFO("MEASURE DONE: %s", file_name.c_str());
+    if (!written) ROS_WARN("COULD NOT CREATE %s", file_name.c_str());
+
+    updateMeasureMap();
+    return true;
+  }
+
+  // Rebuilds measure_map_ from the latest safe map and the current robot position, then publishes.
+  void updateMeasureMap() {
+    awm::updateMeasureMap(safe_map_, scan_pose_.pose.position.x, scan_pose_.pose.position.y,
+                          measure_params_, &measure_map_);
+    measure_map_.header.stamp = ros::Time::now();
+    pub_measure_map_.publish(measure_map_);
+  }
+
+  // Asks /goal_points for the best goal and publishes it for move_base.
+  GoalResult requestGoal() {
+    if (!ros::service::waitForService("/goal_points", ros::Duration(1.0))) {
+      ROS_WARN_THROTTLE(5.0, "WAITING FOR SERVICE /goal_points (IS points_identification UP?)");
+      return GoalResult::SERVICE_UNAVAILABLE;
+    }
+
+    awm::GoalPoints srv;
+    srv.request.mode = goal_mode_;
+    srv.request.num = 1;
+    if (!ros::service::call("/goal_points", srv)) {
+      ROS_WARN_THROTTLE(5.0, "CALL TO /goal_points FAILED");
+      return GoalResult::SERVICE_UNAVAILABLE;
+    }
+    if (srv.response.points.empty()) return GoalResult::NOTHING_LEFT;
+
+    // Face the direction of travel; the service gives positions only.
+    const geometry_msgs::Point& target = srv.response.points.front();
+    const double heading =
+        std::atan2(target.y - scan_pose_.pose.position.y, target.x - scan_pose_.pose.position.x);
+    goal_pose_ = scan_pose_;
+    goal_pose_.header.stamp = ros::Time::now();
+    goal_pose_.pose.position.x = target.x;
+    goal_pose_.pose.position.y = target.y;
+    tf2::Quaternion orientation;
+    orientation.setRPY(0, 0, heading);
+    goal_pose_.pose.orientation = tf2::toMsg(orientation);
+
+    int x;
+    int y;
+    awm::worldToGrid(measure_map_, goal_pose_.pose, &x, &y);
+    ROS_INFO("NEW GOAL: cell x: %d y: %d, angle: %d", x, y,
+             static_cast<int>(std::lround(heading * 180 / M_PI)));
+    goal_status_ = actionlib_msgs::GoalStatus::PENDING;  // Forget the previous goal's result.
+    goal_sent_time_ = ros::Time::now();
+    pub_goal_.publish(goal_pose_);
+    return GoalResult::SENT;
+  }
+
+  // HELPERS //
+
+  // Robot pose in the "map" frame (-> scan_pose_), also published on /scan_pose.
+  // Returns false (and keeps the old scan_pose_) if tf cannot provide the transform yet.
+  bool readScanPose() {
+    if (!robot_pose_.lookup(&scan_pose_)) return false;
+    pub_scan_pose_.publish(scan_pose_);
+    return true;
+  }
+
+  // True once move_base is done with the goal, successfully or not. Still running: PENDING,
+  // ACTIVE, PREEMPTING, RECALLING.
+  static bool goalFinished(int status) {
+    using actionlib_msgs::GoalStatus;
+    return status == GoalStatus::SUCCEEDED || status == GoalStatus::ABORTED ||
+           status == GoalStatus::REJECTED || status == GoalStatus::PREEMPTED ||
+           status == GoalStatus::RECALLED || status == GoalStatus::LOST;
+  }
+
+  // DATA //
+  ros::NodeHandle n_;
+
+  std::uint8_t goal_mode_;     // Mode of the /goal_points request.
+  double measure_duration_s_;  // Time standing still per measurement.
+  awm::MeasureMapParams measure_params_;
+  std::string output_dir_;  // Where the measurement files go.
+
+  awm::RobotPose robot_pose_;
+  geometry_msgs::PoseStamped scan_pose_;  // Robot pose in "map".
+  ros::Publisher pub_scan_pose_;
+
+  nav_msgs::OccupancyGrid safe_map_;  // Latest safe map.
+  nav_msgs::OccupancyGrid measure_map_;
+  ros::Publisher pub_measure_map_;
+  ros::Subscriber sub_safe_map_;
+
+  geometry_msgs::PoseStamped goal_pose_;
+  ros::Publisher pub_goal_;
+  ros::Subscriber sub_status_;
+  int goal_status_ = actionlib_msgs::GoalStatus::PENDING;  // Status of our latest goal.
+  ros::Time goal_sent_time_{0, 0};
+
+  ros::Time measure_start_{0, 0};
+  State state_ = State::WAITING;
 };
 
-
-
-
-
-
-
-
-
-int main(int argc, char **argv)
-{
+int main(int argc, char** argv) {
   ros::init(argc, argv, "brain");
-  Brain brain;
-  //ros::spin();
+  BrainT brain;
+  brain.run();
   return 0;
 }
-
-   /*void fnReadLocalMap()
-    {
-      local_map.info.origin.position.x = scan_pose.pose.position.x - (local_map.info.width-1) / 2*local_map.info.resolution;
-      local_map.info.origin.position.y = scan_pose.pose.position.y - (local_map.info.height-1)/ 2*local_map.info.resolution;
-      
-      if((grid_x<map.info.width)&&(grid_y<map.info.height))
-      {
-        ROS_INFO("READ LOCAL MAP:");
-        local_map_file.open ("local_map.txt");
-        int k = grid_y-local_map.info.height/2;
-        int l = grid_x-local_map.info.width/2;
-        for(int i = 0 ; i < local_map.info.height ; i++)
-        {
-          for(int j = 0 ; j < local_map.info.width; j++)
-          {
-            local_map.data[i*local_map.info.width + j] = map.data[k*map.info.width + l];
-            local_map_file<<int(local_map.data[i*local_map.info.width + j])<<"\t\t";
-            l++;
-          }
-          local_map_file <<"\n";
-          l = grid_x-local_map.info.width/2;
-          k++;
-        }
-        local_map_file.close();
-        pub_local_map.publish(local_map);
-      }
-    }*/

@@ -9,6 +9,7 @@ ROS Noetic nodes, interfaces and launch files for the AWM project, running a Tur
 - `test/`: unit tests of `awm_core` (gtest, no roscore needed; run with `scripts/container_build.sh --test`).
 - `srv/`: custom interface (`GoalPoints.srv`, served by `points_identification` as `/goal_points`, see [Goal points service](#goal-points-service)).
 - `launch/awm.launch`: single launch file for the simulation or the real robot, with a switch for each module (see [Launch options](#launch-options)).
+- `launch/modular.launch`: the modular pipeline, started next to `awm.launch brain:=false` (see [Modular pipeline (experimental)](#modular-pipeline-experimental)).
 - `Dockerfile`: builds an image with every dependency already installed.
 - `scripts/debug_brain.sh`, `.vscode/`: debug `brain` with gdb (see [Debugging with gdb](#debugging-with-gdb)).
 - `scripts/container_build.sh`, `scripts/smoke_test.sh`: build and run a headless simulation test from the host, inside the dev container (see [Build and smoke test from the host](#build-and-smoke-test-from-the-host)).
@@ -305,9 +306,32 @@ rosrun awm brain
 | `~occupied_threshold` | `90` | Occupancy above this is an obstacle |
 | `~output_dir` | `.` | Folder for the measurement files (`.` is the working directory, `~/.ros` under roslaunch) |
 
+### Modular pipeline (experimental)
+
+`brainT` is the modular version of `brain`: same state machine, but it does not search the goal itself. It asks `/goal_points` for one goal (`num: 1`), and builds its `/measure_map` on `/safe_map`, so the caution band around obstacles (value 50) never becomes a goal. When the service answers with no points it stops (`NO MORE GOAL POINTS`). It runs as the node `brain`, so the topics are the same and only one of `brain` / `brainT` can run at a time.
+
+```bash
+roslaunch awm awm.launch brain:=false
+```
+
+```bash
+roslaunch awm modular.launch
+```
+
+- `modular.launch` starts `map_processing` (`/map` to `/safe_map`), `points_identification` (`/goal_points`) and `brainT`. `awm.launch` is unchanged: the standalone `brain` is still its default.
+- Argument `goal_mode` (default `3`): `1` frontier goals only, `2` nearest unmeasured cell only, `3` unmeasured cells first and frontiers when none are left, so the robot keeps exploring.
+- `brainT` reads these private parameters (the others of `brain` do not apply: the search and the margin are done by the service and `map_processing`):
+
+| Parameter | Default | Meaning |
+|---|---|---|
+| `~goal_mode` | `3` | Mode sent to `/goal_points` (1 `EXPLORATION`, 2 `MEASUREMENT`, 3 `FUSION`). Other values stop the node at start |
+| `~measure_duration_s` | `3.0` | Time standing still per measurement |
+| `~measure_radius_m` | `0.5` | Cells this close to the robot count as measured |
+| `~output_dir` | `.` | Folder for the measurement files |
+
 ### Goal points service
 
-`points_identification` serves `/goal_points` (`awm/GoalPoints`). It is not started by `awm.launch` yet; run it next to `map_processing`, which provides `/safe_map`:
+`points_identification` serves `/goal_points` (`awm/GoalPoints`). It is not started by `awm.launch`; `launch/modular.launch` starts it (see below), or run it by hand next to `map_processing`, which provides `/safe_map`:
 
 ```bash
 rosrun awm map_processing
@@ -322,7 +346,7 @@ rosservice call /goal_points "{mode: 1, num: 5}"
 ```
 
 - `mode` 1 `EXPLORATION`: one goal per cluster of free cells next to unknown space (frontiers), read from `/map` and `/safe_map`.
-- `mode` 2 `MEASUREMENT`: the nearest cells of `/measure_map` (published by `brain`) that are still to be measured.
+- `mode` 2 `MEASUREMENT`: the nearest cells of `/measure_map` (published by `brain` or `brainT`) that are still to be measured.
 - `mode` 3 `FUSION`: `MEASUREMENT`, and `EXPLORATION` if that finds nothing.
 - `num` is the most points returned (`0` = all). `points` are in the `map` frame, closest to the robot first. An unknown `mode` makes the call fail; missing maps or robot pose give an empty list.
 

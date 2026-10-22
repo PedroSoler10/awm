@@ -117,3 +117,30 @@ Each session appends one section here before it commits: what changed, what was 
 ### Follow-up after Task 4: latched /measure_map (2026-10-22)
 
 `brain` now advertises `/measure_map` latched (the node-pattern rule; Task 2 had left it unlatched to keep behaviour identical). Topic, queue size and content are unchanged; only a late subscriber (such as `points_identification`) now gets the last map at once. Verified: `scripts/check_format.sh` clean, build ok, `KEEP_RUNNING=1 scripts/smoke_test.sh` PASS (3 measurements in 32 s), and `rostopic echo -n1 /measure_map/header` started after the measurements returned a message immediately.
+
+## Task 5: brainT → modular brain that uses the services (2026-10-22)
+
+**Changed.**
+- `src/nodes/brainT.cpp` rewritten on the template of `brain.cpp` (class `BrainT`, node name `brain`). Same `statusCallback`, `RobotPose`, `updateMeasureMap`, `writeMeasurementFile`, `markDisk` after each goal, 10 Hz `run()` loop. It subscribes only to `/safe_map` and `/move_base/status`; publishes `/scan_pose`, latched `/measure_map` and `/move_base_simple/goal`.
+- The measure map is built from `/safe_map` with `occupied_threshold = kSafeCaution - 1` (so caution cells, value 50, are blocked and never goals) and `inflate_radius_cells = 0` (the safe map already holds the margin).
+- Goal choice: `ros::service::waitForService("/goal_points", 1 s)` with a throttled warning, then a call with `~goal_mode` (default 3 FUSION, validated at start-up: anything else is `ROS_FATAL` + shutdown) and `num: 1`. An empty answer logs `NO MORE GOAL POINTS` and goes to `DONE`. The goal faces the direction from the robot to the point (the service gives positions only). The log line `NEW GOAL: cell x: y: angle:` is kept.
+- All the bugs and dead code of the old brainT listed in PLAN.md are gone (it is a new file). Private params: `~goal_mode`, `~measure_duration_s` 3.0, `~measure_radius_m` 0.5, `~output_dir` ".".
+- New `launch/modular.launch` (arg `goal_mode`): `map_processing`, `points_identification`, `brainT` as node `brain`. `awm.launch` unchanged. Used as `roslaunch awm awm.launch brain:=false` + `roslaunch awm modular.launch`.
+- `scripts/check_format.sh`: no exclusions left. README: contents list, "Modular pipeline (experimental)" section, goal-points section mentions `brainT`.
+
+**Verified.**
+- `scripts/container_build.sh --test`: pass, 78 entries, 0 errors, 0 failures. `scripts/check_format.sh`: clean (brainT.cpp included).
+- Standalone `scripts/smoke_test.sh`: PASS, 3 measurements in 48 s; first goal (169,191) angle 3 as in the baseline, then (168,201), (160,207) as in Task 2.
+- Modular `TIMEOUT_S=600 EXTRA_LAUNCH=modular.launch scripts/smoke_test.sh brain:=false`: PASS, 3 measurements in 47 s; nodes include `/map_processing` and `/points_identification`; first goals (169,191), (168,200), (160,206).
+- Long modular run (`KEEP_RUNNING=1`, left running ~25 min of sim time): 69 goals, all reached, no `NOT REACHED`, then `NO MORE GOAL POINTS`. `/map` stayed 384x384 the whole time, known cells grew only from 8836 to 8846; at the end `/goal_points` mode 2 and mode 1 both returned nothing.
+- Frontier path through brainT: `EXTRA_LAUNCH="modular.launch goal_mode:=1"` PASS, 3 cycles in 22 s, `GOAL POINTS: mode 1, 1 points` before each goal; at that time mode 1 had 17 clusters.
+- Not run: `~goal_mode:=2`; the invalid `~goal_mode` branch; `~output_dir` other than the default.
+
+**Deviations.**
+- Extra state `CHOOSING_GOAL` between `MEASURING` and `REACHING_GOAL`. The measurement must be recorded once, while the service call may have to be repeated until `/goal_points` is up.
+- **The "done when" item "a frontier goal that grows the map (`/map` width or height increases)" was not reached in the sim, and with this design it is not expected to be.** The LiDAR discovers the space before the robot gets there, so the map is fully discovered before it is fully measured: in the long run the known cells were already 8836 at about 800 s of sim time and only reached 8846, and no frontier cluster was left when the measurement goals ran out. FUSION takes measurement goals first, so it never fell through to EXPLORATION, and the robot ended with `NO MORE GOAL POINTS`. In addition, gmapping is configured with `xmin/xmax/ymin/ymax = ±10`, so `/map` is 384x384 from the start and its size would only change if the robot mapped beyond 20 m, which the enclosed ~6 m TurtleBot3 world does not allow. What was shown instead: frontier goals work through brainT (`goal_mode:=1` run, goals taken from `/goal_points` mode 1), and FUSION chooses measurement goals first. I changed neither the world nor the gmapping size.
+
+**Open for Task 6.**
+- Race: `brainT` publishes `/measure_map` and calls `/goal_points` in the same tick; if `points_identification` has not yet received the new map, MEASUREMENT could use the previous one. No bad goal was seen in the runs (all 69 reached, none repeated at the robot position), but nothing guarantees the order.
+- FUSION frontiers are not filtered by the measure map, so a frontier that stays a frontier after a visit would be chosen again and again. It did not happen in these runs.
+- `/measure_map` is latched by both brains; `brainT` and `brain` use the same node name `brain`, so Task 6's merge can drop `brainT` without changing topics.
