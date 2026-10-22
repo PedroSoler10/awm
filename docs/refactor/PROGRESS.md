@@ -109,7 +109,11 @@ Each session appends one section here before it commits: what changed, what was 
 - Frontier "free" is `map == 0` as the task says. gmapping only publishes 0/100/-1, but a map with other low values (e.g. 10) would give no frontiers.
 
 **Open for Task 5/6.**
-- `brain` publishes `/measure_map` unlatched and only after each measurement, so a service started later has none until the next one (see Task 2's note). Latching it would fix that.
+- ~~`brain` publishes `/measure_map` unlatched~~: fixed right after Task 4, see "Follow-up" below.
 - MEASUREMENT returns the nearest cells, which are mostly neighbours of each other (5 goals within about 0.4 m). The caller should use the first one, or ask for more and filter.
 - The ring sweep samples 360 angles, so with `num: 0` it can skip cells at distances over about 57 cells.
 - `awm.launch` does not start `map_processing` or `points_identification` yet (Task 6).
+
+### Follow-up after Task 4: latched /measure_map (2026-10-22)
+
+`brain` now advertises `/measure_map` latched (the node-pattern rule; Task 2 had left it unlatched to keep behaviour identical). Topic, queue size and content are unchanged; only a late subscriber (such as `points_identification`) now gets the last map at once. Verified: `scripts/check_format.sh` clean, build ok, `KEEP_RUNNING=1 scripts/smoke_test.sh` PASS (3 measurements in 32 s), and `rostopic echo -n1 /measure_map/header` started after the measurements returned a message immediately.

@@ -17,7 +17,7 @@
  *             /move_base/status   (actionlib_msgs/GoalStatusArray) state of the goals
  * Publishes:  /move_base_simple/goal (geometry_msgs/PoseStamped)   next goal for move_base
  *             /scan_pose          (geometry_msgs/PoseStamped)      robot pose in the "map" frame
- *             /measure_map        (nav_msgs/OccupancyGrid)         what has been measured so far
+ *             /measure_map        (nav_msgs/OccupancyGrid, latched) what has been measured so far
  * Private params (defaults in brackets):
  *   ~measure_duration_s [3.0], ~measure_radius_m [0.5], ~inflate_radius_cells [6],
  *   ~search_limit_cells [200], ~occupied_threshold [90], ~output_dir [.] for the measurement files
@@ -59,7 +59,7 @@ class Brain {
     pnh.param("output_dir", output_dir_, std::string("."));
 
     pub_scan_pose_ = n_.advertise<geometry_msgs::PoseStamped>("/scan_pose", 100);
-    pub_measure_map_ = n_.advertise<nav_msgs::OccupancyGrid>("/measure_map", 100);
+    pub_measure_map_ = n_.advertise<nav_msgs::OccupancyGrid>("/measure_map", 100, true);
     pub_goal_ = n_.advertise<geometry_msgs::PoseStamped>("/move_base_simple/goal", 1);
     sub_map_ = n_.subscribe("/map", 100, &Brain::mapCallback, this);
     sub_status_ = n_.subscribe("/move_base/status", 10, &Brain::statusCallback, this);
