@@ -9,6 +9,7 @@ ROS Noetic nodes, interfaces and launch files for the AWM project, running a Tur
 - `launch/awm.launch`: single launch file for the simulation or the real robot, with a switch for each module (see [Launch options](#launch-options)).
 - `Dockerfile`: builds an image with every dependency already installed.
 - `scripts/debug_brain.sh`, `.vscode/`: debug `brain` with gdb (see [Debugging with gdb](#debugging-with-gdb)).
+- `scripts/container_build.sh`, `scripts/smoke_test.sh`: build and run a headless simulation test from the host, inside the dev container (see [Build and smoke test from the host](#build-and-smoke-test-from-the-host)).
 - `docs/CONFIGURATION.md`: coding style, formatting and lint tools, editor setup, and the development container.
 
 ## Option A: Native install (Ubuntu 20.04 + ROS Noetic)
@@ -290,6 +291,24 @@ roslaunch awm awm.launch brain:=false
 ```bash
 rosrun awm brain
 ```
+
+### Build and smoke test from the host
+
+When the VS Code dev container exists (see [docs/CONFIGURATION.md](docs/CONFIGURATION.md)), two scripts use it from a host terminal. They find the container by its VS Code label and start it if it is stopped. They never rebuild the image.
+
+```bash
+scripts/container_build.sh
+```
+
+- Runs `catkin_make` inside the container. Add `--test` to also run the unit tests.
+
+```bash
+scripts/smoke_test.sh
+```
+
+- Starts `awm.launch` without the Gazebo window and RViz, waits until `brain` has made 3 measurements, prints the nodes, the brain events and any errors, then stops the simulation and prints `PASS` or `FAIL`.
+- Arguments go to `awm.launch` (for example `scripts/smoke_test.sh world:=turtlebot3_house`).
+- `MIN_CYCLES=5` asks for more measurements, `TIMEOUT_S=600` waits longer, and `KEEP_RUNNING=1` leaves the simulation running for manual checks; stop it with `scripts/smoke_test.sh --stop`.
 
 ## Debugging with gdb
 
