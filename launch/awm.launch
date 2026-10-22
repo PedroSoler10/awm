@@ -1,13 +1,16 @@
 <?xml version="1.0"?>
 <!--
   Single entry point for the AWM project: robot (Gazebo simulation or real
-  TurtleBot3), SLAM, navigation, RViz and the `brain` node.
+  TurtleBot3), SLAM, navigation, RViz and the awm nodes: map_processing (/safe_map),
+  points_identification (/goal_points) and brain, which asks /goal_points (in goal_mode) for
+  each goal.
 
   Every module can be switched on or off, so a subset can be started with one
   command, for example:
     roslaunch awm awm.launch                          full simulation
     roslaunch awm awm.launch brain:=false rviz:=false simulation, no brain and no RViz
     roslaunch awm awm.launch sim:=false               real robot, run on the robot
+    roslaunch awm awm.launch goal_mode:=1             frontier goals only
   See the README for the full list of arguments.
 -->
 <launch>
@@ -25,11 +28,17 @@
   <!-- Modules -->
   <arg name="slam" default="true" doc="run SLAM"/>
   <arg name="slam_method" default="gmapping" doc="SLAM method [gmapping, cartographer, hector, karto, frontier_exploration]"/>
-  <arg name="nav" default="true" doc="run AMCL and move_base"/>
+  <arg name="nav" default="true" doc="run move_base (SLAM provides the localization)"/>
   <arg name="move_forward_only" default="false" doc="navigation never reverses the robot"/>
+  <arg name="goal_xy_tolerance" default="0.10" doc="distance in meters at which move_base counts a goal as reached (TurtleBot3 default 0.05)"/>
+  <arg name="goal_yaw_tolerance" default="3.15" doc="heading error in radians accepted at the goal; 3.15 ignores the heading, as measuring does not need one (TurtleBot3 default 0.17)"/>
   <arg name="rviz" default="true" doc="open RViz"/>
-  <arg name="rviz_config" default="$(find turtlebot3_navigation)/rviz/turtlebot3_navigation.rviz" doc="RViz configuration file"/>
+  <arg name="rviz_config" default="$(find awm)/rviz/awm.rviz" doc="RViz configuration file (awm.rviz: TurtleBot3 navigation view plus /safe_map and /measure_map)"/>
   <arg name="brain" default="true" doc="run the awm brain node"/>
+  <arg name="goal_mode" default="3" doc="mode brain asks from /goal_points [1 EXPLORATION, 2 MEASUREMENT, 3 FUSION]"/>
+  <arg name="occupied_threshold" default="80" doc="SLAM occupancy from this value up is an obstacle; every known cell below it is measured"/>
+  <arg name="obstacle_margin_m" default="0.40" doc="no goal is placed closer than this to an obstacle, in meters"/>
+  <arg name="measure_radius_m" default="0.5" doc="cells this close to a measurement count as measured, in meters"/>
 
   <!-- Gazebo, the robot model and its spawn -->
   <group if="$(arg sim)">
@@ -63,18 +72,33 @@
     </include>
   </group>
 
-  <!-- Navigation -->
+  <!-- Navigation. No AMCL: SLAM already publishes map -> odom, and AMCL would wait for a
+       static_map service that gmapping does not serve. -->
   <group if="$(arg nav)">
-    <include file="$(find turtlebot3_navigation)/launch/amcl.launch"/>
     <include file="$(find turtlebot3_navigation)/launch/move_base.launch">
       <arg name="model" value="$(arg model)"/>
       <arg name="move_forward_only" value="$(arg move_forward_only)"/>
     </include>
+    <!-- Relaxed goal: tight tolerances made the robot back up to re-approach close goals. Set after
+         the include, so they override the TurtleBot3 DWA parameters. -->
+    <param name="move_base/DWAPlannerROS/xy_goal_tolerance" value="$(arg goal_xy_tolerance)"/>
+    <param name="move_base/DWAPlannerROS/yaw_goal_tolerance" value="$(arg goal_yaw_tolerance)"/>
   </group>
 
   <!-- RViz -->
   <node if="$(arg rviz)" pkg="rviz" type="rviz" name="rviz" args="-d $(arg rviz_config)"/>
 
-  <!-- AWM -->
-  <node if="$(arg brain)" pkg="awm" type="brain" name="brain" output="screen"/>
+  <!-- AWM. map_processing and points_identification also run with brain:=false, so brain can be
+       started by hand (rosrun awm brain) or under gdb. -->
+  <node pkg="awm" type="map_processing" name="map_processing" output="screen">
+    <param name="occupied_threshold" value="$(arg occupied_threshold)"/>
+    <param name="obstacle_margin_m" value="$(arg obstacle_margin_m)"/>
+  </node>
+  <node pkg="awm" type="points_identification" name="points_identification" output="screen">
+    <param name="measure_radius_m" value="$(arg measure_radius_m)"/>
+  </node>
+  <node if="$(arg brain)" pkg="awm" type="brain" name="brain" output="screen">
+    <param name="goal_mode" value="$(arg goal_mode)"/>
+    <param name="measure_radius_m" value="$(arg measure_radius_m)"/>
+  </node>
 </launch>

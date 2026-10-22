@@ -1,0 +1,181 @@
+/*
+ * Copyright (c) 2021, Pedro Soler
+ * All rights reserved.
+ *
+ * This file is part of awm and is licensed under the BSD 3-Clause License.
+ * See the LICENSE file at the root of this repository for the full text.
+ */
+
+/*
+ * points_identification: serves goal points for the robot.
+ *
+ * Subscribes: /safe_map     (nav_msgs/OccupancyGrid)  from map_processing: where goals may go
+ *             /measure_map  (nav_msgs/OccupancyGrid)  from brain: what has been measured
+ * Service:    /goal_points  (awm/GoalPoints)
+ *   mode 1 EXPLORATION  frontier goals: one per cluster of free cells at the edge of the known map,
+ *                       except goals /measure_map marks as measured (the robot has been there)
+ *   mode 2 MEASUREMENT  goals that measure the nearest cells still to be measured; cells too close
+ *                       to an obstacle are measured from a free cell within ~measure_radius_m
+ *   mode 3 FUSION       MEASUREMENT first; if it finds nothing, EXPLORATION
+ *   num: most goals returned, 0 = all. Points are in the "map" frame, closest to the robot first.
+ *   An unknown mode is an error. Missing maps or robot pose give an empty list.
+ * Private params (defaults in brackets):
+ *   ~min_cluster_size [5] frontiers with fewer cells are noise, ~search_limit_cells [200] farthest
+ *   unmeasured cell searched from the robot, ~measure_radius_m [0.5] must match brain's,
+ *   ~dump_maps [false] write safe_map_with_goals.txt on every request (goals marked 8), ~dump_dir
+ * [.]
+ */
+
+#include <geometry_msgs/Point.h>
+#include <geometry_msgs/PoseStamped.h>
+#include <nav_msgs/OccupancyGrid.h>
+#include <ros/ros.h>
+
+#include <algorithm>
+#include <cstddef>
+#include <string>
+#include <vector>
+
+#include "awm/GoalPoints.h"
+#include "awm/frontiers.h"
+#include "awm/goal_points_client.h"
+#include "awm/grid.h"
+#include "awm/map_dump.h"
+#include "awm/measure_map.h"
+#include "awm/robot_pose.h"
+
+class PointsIdentification {
+ public:
+  // The constructor only sets up. The work happens in getGoalPoints().
+  PointsIdentification() {
+    ros::NodeHandle pnh("~");
+    pnh.param("min_cluster_size", min_cluster_size_, 5);
+    pnh.param("search_limit_cells", search_limit_cells_, 200);
+    pnh.param("measure_radius_m", measure_radius_m_, 0.5);
+    pnh.param("dump_maps", dump_maps_, false);
+    pnh.param("dump_dir", dump_dir_, std::string("."));
+
+    sub_safe_map_ = nh_.subscribe("/safe_map", 1, &PointsIdentification::safeMapCallback, this);
+    sub_measure_map_ =
+        nh_.subscribe("/measure_map", 1, &PointsIdentification::measureMapCallback, this);
+    srv_goal_points_ =
+        nh_.advertiseService("/goal_points", &PointsIdentification::getGoalPoints, this);
+    ROS_INFO("INITIALIZATION DONE");
+  }
+
+ private:
+  // The maps are only read, so we keep the shared message instead of copying it.
+  void safeMapCallback(const nav_msgs::OccupancyGrid::ConstPtr& msg) { safe_map_ = msg; }
+  void measureMapCallback(const nav_msgs::OccupancyGrid::ConstPtr& msg) { measure_map_ = msg; }
+
+  // Returning false makes the caller's service call fail: only for a request that cannot be
+  // answered (bad mode). A request that is fine but has no answer yet gets an empty list. The
+  // non-const references are the signature advertiseService requires.
+  bool getGoalPoints(awm::GoalPoints::Request& req,     // NOLINT(runtime/references)
+                     awm::GoalPoints::Response& res) {  // NOLINT(runtime/references)
+    using Request = awm::GoalPoints::Request;
+    if (!awm::isValidGoalMode(req.mode)) {
+      ROS_WARN("GOAL POINTS: UNKNOWN MODE %d (1 EXPLORATION, 2 MEASUREMENT, 3 FUSION)", req.mode);
+      return false;
+    }
+
+    geometry_msgs::PoseStamped robot;
+    if (!robot_pose_.lookup(&robot)) {
+      ROS_WARN_THROTTLE(5.0, "GOAL POINTS: NO ROBOT POSE YET");
+      return true;
+    }
+
+    if (req.mode != Request::EXPLORATION) {
+      if (!measurementPoints(robot, req.num, &res.points) && req.mode == Request::MEASUREMENT)
+        ROS_WARN_THROTTLE(5.0, "GOAL POINTS: NO /measure_map AND /safe_map YET");
+    }
+    if (res.points.empty() && req.mode != Request::MEASUREMENT) {
+      if (!explorationPoints(robot, req.num, &res.points))
+        ROS_WARN_THROTTLE(5.0, "GOAL POINTS: NO USABLE /safe_map YET");
+    }
+
+    ROS_INFO("GOAL POINTS: mode %d, %zu points", req.mode, res.points.size());
+    if (dump_maps_ && safe_map_) dumpGoals(res.points);
+    return true;
+  }
+
+  // Frontier goals. Returns false if /safe_map is missing or malformed. A frontier the robot has
+  // already visited can stay a frontier (space the LiDAR cannot see from there), so goals that
+  // /measure_map marks as measured are dropped; otherwise FUSION would offer the same one forever.
+  bool explorationPoints(const geometry_msgs::PoseStamped& robot, int num,
+                         std::vector<geometry_msgs::Point>* points) const {
+    if (!safe_map_) return false;
+    std::vector<awm::GridCell> frontier_cells;
+    if (!awm::findFrontierCells(*safe_map_, &frontier_cells)) return false;
+
+    std::vector<std::vector<awm::GridCell>> clusters;
+    awm::clusterFrontiers(frontier_cells, safe_map_->info.width, min_cluster_size_, &clusters);
+
+    int robot_x;
+    int robot_y;
+    awm::worldToGrid(*safe_map_, robot.pose, &robot_x, &robot_y);
+    std::vector<awm::GridCell> goals;
+    awm::frontierGoals(clusters, robot_x, robot_y, &goals);
+    // brain may be one update behind a map that just grew; then its cells do not line up.
+    if (measure_map_ && awm::sameGeometry(measure_map_->info, safe_map_->info))
+      awm::removeMeasuredCells(*measure_map_, &goals);
+    appendWorldPoints(*safe_map_, goals, num, points);
+    return true;
+  }
+
+  // Goals that measure the nearest cells still to be measured. Returns false if /measure_map or
+  // /safe_map has not been received.
+  bool measurementPoints(const geometry_msgs::PoseStamped& robot, int num,
+                         std::vector<geometry_msgs::Point>* points) const {
+    if (!measure_map_ || !safe_map_) return false;
+    awm::findMeasurementGoals(*measure_map_, *safe_map_, robot.pose.position.x,
+                              robot.pose.position.y, search_limit_cells_, measure_radius_m_, num,
+                              points);
+    return true;
+  }
+
+  // Cell -> world position of the cell centre, the same convention brain uses for its goals.
+  static void appendWorldPoints(const nav_msgs::OccupancyGrid& grid,
+                                const std::vector<awm::GridCell>& cells, int num,
+                                std::vector<geometry_msgs::Point>* points) {
+    const std::size_t count = num == 0 ? cells.size() : std::min(cells.size(), std::size_t(num));
+    for (std::size_t i = 0; i < count; i++) {
+      geometry_msgs::Point point;
+      awm::gridToWorld(grid, cells[i].x, cells[i].y, &point.x, &point.y);
+      points->push_back(point);
+    }
+  }
+
+  // Text picture of /safe_map with the goals drawn as 8, for looking at what the service answered.
+  void dumpGoals(const std::vector<geometry_msgs::Point>& points) const {
+    std::vector<awm::GridCell> marks;
+    for (const geometry_msgs::Point& point : points) {
+      awm::GridCell mark;
+      awm::worldToGrid(*safe_map_, point.x, point.y, &mark.x, &mark.y);
+      marks.push_back(mark);
+    }
+    const std::string path = dump_dir_ + "/safe_map_with_goals.txt";
+    if (!awm::writeMapText(*safe_map_, path, marks)) ROS_WARN("COULD NOT WRITE %s", path.c_str());
+  }
+
+  ros::NodeHandle nh_;
+  int min_cluster_size_;
+  int search_limit_cells_;
+  double measure_radius_m_;
+  bool dump_maps_;
+  std::string dump_dir_;
+
+  awm::RobotPose robot_pose_;
+  nav_msgs::OccupancyGrid::ConstPtr safe_map_;
+  nav_msgs::OccupancyGrid::ConstPtr measure_map_;
+  ros::Subscriber sub_safe_map_;
+  ros::Subscriber sub_measure_map_;
+  ros::ServiceServer srv_goal_points_;
+};
+
+int main(int argc, char** argv) {
+  ros::init(argc, argv, "points_identification");
+  PointsIdentification points_identification;
+  ros::spin();
+  return 0;
+}

@@ -1,0 +1,33 @@
+{
+  // Helper tasks for debugging. Run them with "Tasks: Run Task".
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "build debug",
+      "type": "shell",
+      "command": "catkin_make -DCMAKE_BUILD_TYPE=Debug",
+      "options": { "cwd": "${workspaceFolder}/../.." },
+      "problemMatcher": ["$gcc"],
+      "group": "build"
+    },
+    {
+      "label": "sim without brain",
+      "type": "shell",
+      "command": "roslaunch awm awm.launch brain:=false gui:=false rviz:=false",
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "pause sim",
+      "type": "shell",
+      "command": "rosservice call /gazebo/pause_physics",
+      "problemMatcher": []
+    },
+    {
+      "label": "unpause sim",
+      "type": "shell",
+      "command": "rosservice call /gazebo/unpause_physics",
+      "problemMatcher": []
+    }
+  ]
+}

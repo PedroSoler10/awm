@@ -1,0 +1,156 @@
+/*
+ * Copyright (c) 2021, Pedro Soler
+ * All rights reserved.
+ *
+ * This file is part of awm and is licensed under the BSD 3-Clause License.
+ * See the LICENSE file at the root of this repository for the full text.
+ */
+
+#include "awm/measure_map.h"
+
+#include <algorithm>
+#include <cmath>
+#include <cstddef>
+#include <ctime>
+#include <fstream>
+#include <set>
+#include <utility>
+
+#include "awm/safe_map.h"
+
+namespace awm {
+
+namespace {
+
+// Marks as measured, in *to, the cells at the world positions of the measured cells of from.
+// Cells that are blocked in *to, or outside it, are left alone.
+void carryOverMeasuredCells(const nav_msgs::OccupancyGrid& from, nav_msgs::OccupancyGrid* to) {
+  for (int y = 0; y < static_cast<int>(from.info.height); y++) {
+    for (int x = 0; x < static_cast<int>(from.info.width); x++) {
+      const std::int8_t* old_value = cell(from, x, y);
+      if (old_value == nullptr || *old_value != kMeasured) continue;
+      double world_x;
+      double world_y;
+      gridToWorld(from, x, y, &world_x, &world_y);
+      int new_x;
+      int new_y;
+      worldToGrid(*to, world_x, world_y, &new_x, &new_y);
+      std::int8_t* new_value = cell(to, new_x, new_y);
+      if (new_value != nullptr && *new_value != kBlocked) *new_value = kMeasured;
+    }
+  }
+}
+
+// The free cell of safe_map nearest to (x, y) within radius_m (cell centres), (x, y) itself if it
+// is free. Returns false if there is none.
+bool nearestFreeCell(const nav_msgs::OccupancyGrid& safe_map, int x, int y, double radius_m,
+                     GridCell* found) {
+  const double resolution = safe_map.info.resolution;
+  const int reach = static_cast<int>(std::ceil(radius_m / resolution));
+  double best = -1;
+  for (int ny = y - reach; ny <= y + reach; ny++) {
+    for (int nx = x - reach; nx <= x + reach; nx++) {
+      const std::int8_t* c = cell(safe_map, nx, ny);
+      const double distance = std::hypot(nx - x, ny - y) * resolution;
+      if (c == nullptr || *c != kSafeFree || distance > radius_m) continue;
+      if (best < 0 || distance < best) {
+        best = distance;
+        *found = {nx, ny};
+      }
+    }
+  }
+  return best >= 0;
+}
+
+}  // namespace
+
+void updateMeasureMap(const nav_msgs::OccupancyGrid& safe_map, double robot_x, double robot_y,
+                      double measure_radius_m, nav_msgs::OccupancyGrid* measure_map) {
+  // When the map grows its size and origin change, and the same index no longer is the same
+  // place: rebuild from the new map and carry the measured cells over by world position.
+  const bool new_geometry = !sameGeometry(measure_map->info, safe_map.info);
+  nav_msgs::OccupancyGrid old_measure_map;
+  if (new_geometry) {
+    old_measure_map = std::move(*measure_map);
+    *measure_map = safe_map;
+  }
+
+  // 1) Unknown and occupied cells -> blocked. Free and caution cells -> to measure, keeping those
+  //    already measured. After a geometry change the copied values come from the safe map, where
+  //    0 means "free", not "measured", so everything is reset and step 2 restores the measured
+  //    cells.
+  for (std::size_t k = 0; k < safe_map.data.size(); k++) {
+    if (safe_map.data[k] == kSafeUnknown || safe_map.data[k] == kSafeOccupied)
+      measure_map->data[k] = kBlocked;
+    else if (new_geometry || measure_map->data[k] != kMeasured)
+      measure_map->data[k] = kToMeasure;
+  }
+
+  // 2) Measured cells of the old geometry.
+  if (new_geometry) carryOverMeasuredCells(old_measure_map, measure_map);
+
+  // 3) Cells close to the robot are now measured.
+  int x;
+  int y;
+  worldToGrid(*measure_map, robot_x, robot_y, &x, &y);
+  markDisk(measure_map, x, y, measure_radius_m, kMeasured, kBlocked);
+}
+
+bool findMeasurementGoals(const nav_msgs::OccupancyGrid& measure_map,
+                          const nav_msgs::OccupancyGrid& safe_map, double robot_x, double robot_y,
+                          int max_radius_cells, double measure_radius_m, int n,
+                          std::vector<geometry_msgs::Point>* goals) {
+  goals->clear();
+  int robot_cell_x;
+  int robot_cell_y;
+  worldToGrid(measure_map, robot_x, robot_y, &robot_cell_x, &robot_cell_y);
+  std::vector<GridCell> targets;
+  findNearestCells(measure_map, robot_cell_x, robot_cell_y, kToMeasure, max_radius_cells, 0,
+                   &targets);
+
+  // Targets near each other share a goal; it is offered once.
+  std::set<std::pair<int, int>> used;
+  for (const GridCell& target : targets) {
+    // The two maps normally share their geometry; going through world coordinates also works
+    // while the measure map is one update behind a map that just grew.
+    double world_x;
+    double world_y;
+    gridToWorld(measure_map, target.x, target.y, &world_x, &world_y);
+    int safe_x;
+    int safe_y;
+    worldToGrid(safe_map, world_x, world_y, &safe_x, &safe_y);
+    GridCell goal;
+    if (!nearestFreeCell(safe_map, safe_x, safe_y, measure_radius_m, &goal)) continue;
+    if (!used.insert({goal.x, goal.y}).second) continue;
+
+    geometry_msgs::Point point;
+    gridToWorld(safe_map, goal.x, goal.y, &point.x, &point.y);
+    goals->push_back(point);
+    if (n > 0 && static_cast<int>(goals->size()) == n) break;
+  }
+  return !goals->empty();
+}
+
+void removeMeasuredCells(const nav_msgs::OccupancyGrid& measure_map, std::vector<GridCell>* cells) {
+  const auto measured = [&measure_map](const GridCell& c) {
+    const std::int8_t* value = cell(measure_map, c.x, c.y);
+    return value != nullptr && *value == kMeasured;
+  };
+  cells->erase(std::remove_if(cells->begin(), cells->end(), measured), cells->end());
+}
+
+bool writeMeasurementFile(const std::string& dir, const geometry_msgs::Pose& pose,
+                          std::string* file_name) {
+  // No colons in the time, so the name is also valid on Windows.
+  const std::time_t now = std::time(nullptr);
+  std::tm local_time;
+  char time_text[32] = "";
+  if (localtime_r(&now, &local_time) != nullptr)
+    std::strftime(time_text, sizeof(time_text), "%Y-%m-%dT%H-%M-%S", &local_time);
+  *file_name = std::to_string(pose.position.x) + "_" + std::to_string(pose.position.y) + "_" +
+               time_text + ".txt";
+  std::ofstream measure_file(dir + "/" + *file_name);
+  return measure_file.is_open();
+}
+
+}  // namespace awm
