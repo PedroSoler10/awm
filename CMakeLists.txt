@@ -91,10 +91,13 @@ add_library(awm_core
   src/lib/grid.cpp
   src/lib/map_dump.cpp
   src/lib/measure_map.cpp
+  src/lib/nearest_unmeasured_goal_source.cpp
   src/lib/robot_pose.cpp
   src/lib/safe_map.cpp
+  src/lib/service_goal_source.cpp
 )
-add_dependencies(awm_core ${catkin_EXPORTED_TARGETS})
+# service_goal_source.cpp includes the generated awm/GoalPoints.h.
+add_dependencies(awm_core ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 target_link_libraries(awm_core ${catkin_LIBRARIES})
 
 # ---------------------------------------------------------------------------
@@ -103,7 +106,6 @@ target_link_libraries(awm_core ${catkin_LIBRARIES})
 # Each name below is built from src/nodes/<name>.cpp.
 set(AWM_EXECUTABLES
   brain
-  brainT
   map_processing
   points_identification
 )
@@ -132,7 +134,7 @@ endforeach()
 # Run with "catkin_make run_tests_awm". They test pure functions of awm_core,
 # so they need no roscore.
 if(CATKIN_ENABLE_TESTING)
-  foreach(test test_frontiers test_grid test_measure_map test_safe_map)
+  foreach(test test_frontiers test_goal_source test_grid test_measure_map test_safe_map)
     catkin_add_gtest(${test} test/${test}.cpp)
     target_link_libraries(${test} awm_core ${catkin_LIBRARIES})
   endforeach()

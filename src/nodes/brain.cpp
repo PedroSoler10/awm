@@ -9,18 +9,26 @@
 /*
  * brain: autonomous exploration node (ROS 1 Noetic, TurtleBot3 + SLAM + move_base).
  *
- * Repeatedly: pick the closest free cell that has not been "measured" yet, send it to move_base as
- * a goal, wait until move_base finishes, stand still for a few seconds taking a "measurement", and
- * start over. brain does NOT drive the motors: move_base plans the path and drives.
+ * Repeatedly: choose a goal, send it to move_base, wait until move_base finishes, stand still for a
+ * few seconds taking a "measurement", and start over. brain does NOT drive the motors: move_base
+ * plans the path and drives.
  *
- * Subscribes: /map                (nav_msgs/OccupancyGrid)         SLAM map
+ * How the goal is chosen is a GoalSource (awm/goal_source.h), picked by ~goal_source:
+ *   internal  closest free cell not measured yet, searched here on a measure map built on /map.
+ *   service   asked from /goal_points (points_identification, which needs map_processing); the
+ *             measure map is built on /safe_map, whose caution band (value 50) is blocked.
+ *
+ * Subscribes: /map or /safe_map   (nav_msgs/OccupancyGrid)         SLAM map / safe map
  *             /move_base/status   (actionlib_msgs/GoalStatusArray) state of the goals
  * Publishes:  /move_base_simple/goal (geometry_msgs/PoseStamped)   next goal for move_base
  *             /scan_pose          (geometry_msgs/PoseStamped)      robot pose in the "map" frame
  *             /measure_map        (nav_msgs/OccupancyGrid, latched) what has been measured so far
- * Private params (defaults in brackets):
- *   ~measure_duration_s [3.0], ~measure_radius_m [0.5], ~inflate_radius_cells [6],
- *   ~search_limit_cells [200], ~occupied_threshold [90], ~output_dir [.] for the measurement files
+ * Calls:      /goal_points        (awm/GoalPoints), service mode only
+ * Private params (defaults in brackets, internal / service when they differ):
+ *   ~goal_source [internal] internal or service, ~goal_mode [3] (service only: 1 EXPLORATION,
+ *   2 MEASUREMENT, 3 FUSION), ~search_limit_cells [200] (internal only), ~measure_duration_s [3.0],
+ *   ~measure_radius_m [0.5], ~inflate_radius_cells [6 / 0], ~occupied_threshold [90 / 49],
+ *   ~output_dir [.] for the measurement files
  *
  * Grid values (nav_msgs/OccupancyGrid): -1 unknown, 0 free, 100 occupied. Cell (x, y) is stored at
  * data[y * width + x]. In measure_map (same message type, our own meaning):
@@ -29,39 +37,76 @@
  *    -1  free cell still to be measured  <- candidates for the next goal
  */
 
-// C system headers (.h): ROS core, ROS messages, TF2
+// C system headers (.h): ROS core and ROS messages
 #include <actionlib_msgs/GoalStatusArray.h>
 #include <geometry_msgs/PoseStamped.h>
 #include <nav_msgs/OccupancyGrid.h>
 #include <ros/ros.h>
-#include <tf2/LinearMath/Quaternion.h>
-#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 
 // C++ standard library (no .h suffix)
-#include <cmath>
+#include <cstdint>
+#include <memory>
 #include <string>
 
-// This package's library
+// This package's library and service
+#include "awm/GoalPoints.h"
+#include "awm/goal_source.h"
 #include "awm/grid.h"
 #include "awm/measure_map.h"
+#include "awm/nearest_unmeasured_goal_source.h"
 #include "awm/robot_pose.h"
+#include "awm/safe_map.h"
+#include "awm/service_goal_source.h"
 
 class Brain {
  public:
-  // The constructor only sets up. The program itself runs in run().
+  // The constructor only sets up. The program itself runs in run(). A bad parameter logs
+  // ROS_FATAL and shuts ROS down, so ros::ok() is false afterwards.
   Brain() {
     ros::NodeHandle pnh("~");
+    std::string goal_source;
+    pnh.param("goal_source", goal_source, std::string("internal"));
+    const bool service = goal_source == "service";
+    if (!service && goal_source != "internal") {
+      ROS_FATAL("~goal_source must be internal or service, got %s", goal_source.c_str());
+      ros::shutdown();
+      return;
+    }
+
     pnh.param("measure_duration_s", measure_duration_s_, 3.0);
     pnh.param("measure_radius_m", measure_params_.measure_radius_m, 0.5);
-    pnh.param("inflate_radius_cells", measure_params_.inflate_radius_cells, 6);
-    pnh.param("search_limit_cells", search_limit_cells_, 200);
-    pnh.param("occupied_threshold", measure_params_.occupied_threshold, 90);
+    // On /safe_map the caution band already is the margin around obstacles: cells from 50 up are
+    // blocked and no extra inflation is needed.
+    pnh.param("inflate_radius_cells", measure_params_.inflate_radius_cells, service ? 0 : 6);
+    pnh.param("occupied_threshold", measure_params_.occupied_threshold,
+              service ? awm::kSafeCaution - 1 : 90);
     pnh.param("output_dir", output_dir_, std::string("."));
+
+    std::string map_topic = "/map";
+    int map_queue = 100;
+    if (service) {
+      int goal_mode;
+      pnh.param("goal_mode", goal_mode, static_cast<int>(awm::GoalPoints::Request::FUSION));
+      if (!awm::ServiceGoalSource::isValidMode(goal_mode)) {
+        ROS_FATAL("~goal_mode must be 1 (EXPLORATION), 2 (MEASUREMENT) or 3 (FUSION), got %d",
+                  goal_mode);
+        ros::shutdown();
+        return;
+      }
+      goal_source_ = std::make_unique<awm::ServiceGoalSource>(static_cast<std::uint8_t>(goal_mode));
+      map_topic = "/safe_map";
+      map_queue = 10;
+      map_name_ = "SAFE MAP";
+    } else {
+      int search_limit_cells;
+      pnh.param("search_limit_cells", search_limit_cells, 200);
+      goal_source_ = std::make_unique<awm::NearestUnmeasuredGoalSource>(search_limit_cells);
+    }
 
     pub_scan_pose_ = n_.advertise<geometry_msgs::PoseStamped>("/scan_pose", 100);
     pub_measure_map_ = n_.advertise<nav_msgs::OccupancyGrid>("/measure_map", 100, true);
     pub_goal_ = n_.advertise<geometry_msgs::PoseStamped>("/move_base_simple/goal", 1);
-    sub_map_ = n_.subscribe("/map", 100, &Brain::mapCallback, this);
+    sub_map_ = n_.subscribe(map_topic, map_queue, &Brain::mapCallback, this);
     sub_status_ = n_.subscribe("/move_base/status", 10, &Brain::statusCallback, this);
     ROS_INFO("INITIALIZATION DONE");
   }
@@ -103,7 +148,7 @@ class Brain {
   void control() {
     // Every state needs the robot pose and a map; until both exist SLAM or tf are not up yet.
     if (!readScanPose() || map_.data.empty()) {
-      ROS_INFO_THROTTLE(1.0, "WAITING FOR MAP AND SCAN POSE");
+      ROS_INFO_THROTTLE(1.0, "WAITING FOR %s AND SCAN POSE", map_name_);
       return;
     }
 
@@ -114,12 +159,8 @@ class Brain {
 
       case State::MEASURING:
         if (!measure()) break;
-        if (pubGoal()) {
-          state_ = State::REACHING_GOAL;
-        } else {
-          ROS_INFO("EVERYTHING MEASURED");
-          state_ = State::DONE;
-        }
+        // The goal source logs why it has no goal left.
+        state_ = pubGoal() ? State::REACHING_GOAL : State::DONE;
         break;
 
       case State::REACHING_GOAL:
@@ -167,7 +208,7 @@ class Brain {
     return true;
   }
 
-  // Rebuilds measure_map_ from the latest SLAM map and the current robot position, then publishes.
+  // Rebuilds measure_map_ from the latest map and the current robot position, then publishes.
   void updateMeasureMap() {
     awm::updateMeasureMap(map_, scan_pose_.pose.position.x, scan_pose_.pose.position.y,
                           measure_params_, &measure_map_);
@@ -175,28 +216,12 @@ class Brain {
     pub_measure_map_.publish(measure_map_);
   }
 
-  // Chooses the closest unmeasured cell and publishes it as the goal.
-  // Returns false if there is nothing left to measure.
+  // Asks the goal source for the next goal and publishes it.
+  // Returns false if there is nothing left to do.
   bool pubGoal() {
-    int robot_x;
-    int robot_y;
-    awm::worldToGrid(measure_map_, scan_pose_.pose, &robot_x, &robot_y);
-    int x;
-    int y;
-    int angle_deg;
-    if (!awm::findNearestCell(measure_map_, robot_x, robot_y, awm::kToMeasure, search_limit_cells_,
-                              &x, &y, &angle_deg))
-      return false;
+    if (!goal_source_->next({scan_pose_, measure_map_}, &goal_pose_)) return false;
 
-    // Cell -> world coordinates, facing the direction the cell was found in.
-    goal_pose_ = scan_pose_;
     goal_pose_.header.stamp = ros::Time::now();
-    awm::gridToWorld(measure_map_, x, y, &goal_pose_.pose.position.x, &goal_pose_.pose.position.y);
-    tf2::Quaternion orientation;
-    orientation.setRPY(0, 0, angle_deg * M_PI / 180);
-    goal_pose_.pose.orientation = tf2::toMsg(orientation);
-
-    ROS_INFO("NEW GOAL: cell x: %d y: %d, angle: %d", x, y, angle_deg);
     goal_status_ = actionlib_msgs::GoalStatus::PENDING;  // Forget the previous goal's result.
     goal_sent_time_ = ros::Time::now();
     pub_goal_.publish(goal_pose_);
@@ -226,15 +251,16 @@ class Brain {
   ros::NodeHandle n_;
 
   double measure_duration_s_;  // Time standing still per measurement.
-  int search_limit_cells_;     // Farthest goal searched from the robot.
   awm::MeasureMapParams measure_params_;
   std::string output_dir_;  // Where the measurement files go.
+  std::unique_ptr<awm::GoalSource> goal_source_;
 
   awm::RobotPose robot_pose_;
   geometry_msgs::PoseStamped scan_pose_;  // Robot pose in "map".
   ros::Publisher pub_scan_pose_;
 
-  nav_msgs::OccupancyGrid map_;  // Latest SLAM map.
+  nav_msgs::OccupancyGrid map_;   // Latest /map (internal) or /safe_map (service).
+  const char* map_name_ = "MAP";  // For the log.
   nav_msgs::OccupancyGrid measure_map_;
   ros::Publisher pub_measure_map_;
   ros::Subscriber sub_map_;
@@ -252,6 +278,7 @@ class Brain {
 int main(int argc, char** argv) {
   ros::init(argc, argv, "brain");
   Brain brain;
+  if (!ros::ok()) return 1;  // Bad parameter, already reported.
   brain.run();
   return 0;
 }

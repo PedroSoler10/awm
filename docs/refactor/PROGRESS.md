@@ -144,3 +144,35 @@ Each session appends one section here before it commits: what changed, what was 
 - Race: `brainT` publishes `/measure_map` and calls `/goal_points` in the same tick; if `points_identification` has not yet received the new map, MEASUREMENT could use the previous one. No bad goal was seen in the runs (all 69 reached, none repeated at the robot position), but nothing guarantees the order.
 - FUSION frontiers are not filtered by the measure map, so a frontier that stays a frontier after a visit would be chosen again and again. It did not happen in these runs.
 - `/measure_map` is latched by both brains; `brainT` and `brain` use the same node name `brain`, so Task 6's merge can drop `brainT` without changing topics.
+
+## Task 6: One brain, mode chosen by a parameter (2026-10-22)
+
+**Changed.**
+- New `include/awm/goal_source.h`: interface `awm::GoalSource` with `next(const Context&, PoseStamped*)`; `GoalSource::Context` holds const references to the robot pose and the measure map. Two implementations in `awm_core`:
+  - `NearestUnmeasuredGoalSource(search_limit_cells)` (`nearest_unmeasured_goal_source.h/.cpp`): brain's old `pubGoal` search (ring search, goal faces the angle the cell was found at), with the same `NEW GOAL` / `EVERYTHING MEASURED` log lines.
+  - `ServiceGoalSource(goal_mode, service = "/goal_points")` (`service_goal_source.h/.cpp`): brainT's call (`num: 1`, goal faces the direction of travel, same `NEW GOAL` / `NO MORE GOAL POINTS` lines), plus `isValidMode()`.
+- `src/nodes/brain.cpp`: owns a `std::unique_ptr<awm::GoalSource>` built from `~goal_source` (`internal` default | `service`; anything else → `ROS_FATAL`, shutdown, exit code 1). `service` reads `~goal_mode` (default 3, validated as in brainT), subscribes to `/safe_map` (queue 10) instead of `/map` (queue 100), and changes the defaults of `~inflate_radius_cells` 6 → 0 and `~occupied_threshold` 90 → 49 (brainT's values; they can still be overridden). `pubGoal` = `next()` + stamp + publish. The goal source logs why it has no goal left, so `control()` no longer logs `EVERYTHING MEASURED` itself. Unused tf2 includes removed.
+- Deleted `src/nodes/brainT.cpp` and `launch/modular.launch`; `brainT` removed from CMake. `awm_core` now also depends on `${PROJECT_NAME}_EXPORTED_TARGETS` (it includes the generated `awm/GoalPoints.h`).
+- `awm.launch`: args `mode` (`standalone` | `modular`) and `goal_mode` (default 3). brain gets `goal_source` from a dict lookup on `mode`, so an unknown mode fails the launch; `map_processing` + `points_identification` start in `<group if="$(eval mode == 'modular')">`, independent of `brain`.
+- `test/test_goal_source.cpp` (5 tests): closest unmeasured cell wins over a farther one and a closer measured one, header copied from the robot pose, yaw equals the sweep angle, nothing to measure leaves `*goal` untouched, search limit, call through `GoalSource&`.
+- README: contents list, launch examples and argument table (`mode`, `goal_mode`), brain parameter table (`~goal_source`, `~goal_mode`, mode-dependent defaults), new "Modes" section (mode → nodes → goal policy table, and a topics/services table) replacing "Modular pipeline (experimental)", goal-points section. `scripts/smoke_test.sh`: dropped the `modular.launch` usage example.
+
+**Verified.**
+- `scripts/container_build.sh --test`: pass, 88 entries, 0 errors, 0 failures. `scripts/check_format.sh`: clean.
+- `scripts/smoke_test.sh` (standalone): PASS, 3 measurements in 58 s. Nodes exactly the baseline list. Goals (169,191) angle 3, (168,201) angle 88, (160,207) angle 139: identical to Task 2 (first goal = baseline). No errors.
+- `TIMEOUT_S=600 KEEP_RUNNING=1 scripts/smoke_test.sh mode:=modular`: PASS, 3 measurements in 32 s (4 goals reached). Nodes include `/map_processing` and `/points_identification`. Goals (169,191) angle 5, (168,200) 86, (160,206) 135, as in Task 5's modular run. `/brain/goal_source` = `service`, `/brain/goal_mode` = 3, `rosnode info /brain` subscribes `/safe_map` and not `/map`; 8 `GOAL POINTS` lines from points_identification. Sim stopped afterwards.
+- `rosrun awm brain _goal_source:=foo` and `_goal_source:=service _goal_mode:=7`: `ROS_FATAL` with the message, exit code 1.
+- `roslaunch --nodes awm awm.launch`: standalone → `/brain`; modular → `/brain /map_processing /points_identification`; `mode:=modular brain:=false` → the two service nodes only; `mode:=foo` → launch error (`<param> tag is missing required attribute: 'foo'`; terse, but it fails before anything starts).
+- Not run: `goal_mode:=1`/`2` through `awm.launch` in the sim (Task 5 ran mode 1 through brainT with the same call code); `~output_dir` other than the default.
+
+**Deviations.**
+- The task puts the interface "in `src/nodes/brain.cpp`", but the two implementations live in `awm_core` and derive from it (and the unit test needs it), so it is in `include/awm/goal_source.h` and brain includes it. `Context` is the nested struct `GoalSource::Context`.
+- `next()` returns `bool` as the task's signature says, so `ServiceGoalSource` cannot report "service not there yet" separately. It blocks inside `next()` (1 s `waitForService` retries, throttled warning, returns false only on shutdown), so `false` keeps meaning "nothing left". brainT's extra `CHOOSING_GOAL` state is therefore gone; brain's state machine is unchanged. While it waits, the control loop does not tick (no `/scan_pose` publishing); the robot is standing still then anyway.
+- The `NEW GOAL` / done log lines moved from brain into the goal sources, so each mode keeps its own text (`EVERYTHING MEASURED` vs `NO MORE GOAL POINTS`).
+- `awm.launch` gained a `goal_mode` arg (not in the task) so the old `modular.launch goal_mode:=` option is not lost.
+
+**Open for Task 7.**
+- The Task 5 race is still there: brain publishes `/measure_map` and calls `/goal_points` in the same tick, so `MEASUREMENT` may use the previous map. Not seen in the runs.
+- FUSION frontiers are still not filtered by the measure map (Task 5 note).
+- `smoke_test.sh` lists brain events with `EVERYTHING` but not `NO MORE GOAL POINTS`, so the modular "done" line does not appear in its summary.
+- The `mode:=foo` launch error text is not self-explanatory.

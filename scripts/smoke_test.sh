@@ -10,7 +10,6 @@
 # Examples:
 #   scripts/smoke_test.sh
 #   scripts/smoke_test.sh mode:=modular
-#   EXTRA_LAUNCH=modular.launch scripts/smoke_test.sh brain:=false
 # Environment:
 #   MIN_CYCLES    measurements needed to pass (default 3)
 #   TIMEOUT_S     seconds to wait for them (default 300)

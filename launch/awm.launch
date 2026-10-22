@@ -3,11 +3,17 @@
   Single entry point for the AWM project: robot (Gazebo simulation or real
   TurtleBot3), SLAM, navigation, RViz and the `brain` node.
 
+  mode picks how brain chooses its goals:
+    standalone  brain searches the nearest unmeasured cell itself (default)
+    modular     map_processing (/safe_map) and points_identification (/goal_points) also start,
+                and brain asks /goal_points (in goal_mode) for each goal
+
   Every module can be switched on or off, so a subset can be started with one
   command, for example:
     roslaunch awm awm.launch                          full simulation
     roslaunch awm awm.launch brain:=false rviz:=false simulation, no brain and no RViz
     roslaunch awm awm.launch sim:=false               real robot, run on the robot
+    roslaunch awm awm.launch mode:=modular            goals from the /goal_points service
   See the README for the full list of arguments.
 -->
 <launch>
@@ -30,6 +36,8 @@
   <arg name="rviz" default="true" doc="open RViz"/>
   <arg name="rviz_config" default="$(find turtlebot3_navigation)/rviz/turtlebot3_navigation.rviz" doc="RViz configuration file"/>
   <arg name="brain" default="true" doc="run the awm brain node"/>
+  <arg name="mode" default="standalone" doc="how brain chooses goals [standalone, modular]"/>
+  <arg name="goal_mode" default="3" doc="modular only: mode asked from /goal_points [1 EXPLORATION, 2 MEASUREMENT, 3 FUSION]"/>
 
   <!-- Gazebo, the robot model and its spawn -->
   <group if="$(arg sim)">
@@ -75,6 +83,14 @@
   <!-- RViz -->
   <node if="$(arg rviz)" pkg="rviz" type="rviz" name="rviz" args="-d $(arg rviz_config)"/>
 
-  <!-- AWM -->
-  <node if="$(arg brain)" pkg="awm" type="brain" name="brain" output="screen"/>
+  <!-- AWM. The lookup fails the launch for an unknown mode. -->
+  <node if="$(arg brain)" pkg="awm" type="brain" name="brain" output="screen">
+    <param name="goal_source" value="$(eval {'standalone': 'internal', 'modular': 'service'}[mode])"/>
+    <param name="goal_mode" value="$(arg goal_mode)"/>
+  </node>
+
+  <group if="$(eval mode == 'modular')">
+    <node pkg="awm" type="map_processing" name="map_processing" output="screen"/>
+    <node pkg="awm" type="points_identification" name="points_identification" output="screen"/>
+  </group>
 </launch>
