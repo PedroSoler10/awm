@@ -4,7 +4,7 @@ FROM ros:noetic-ros-base
 # Only these two files are copied, so this layer is rebuilt only when they change.
 COPY package.xml /tmp/awm/package.xml
 COPY scripts/install_deps.sh /tmp/awm/scripts/install_deps.sh
-# gdb is for debugging nodes (see "Debugging with gdb" in the README).
+# gdb is for debugging nodes (see "Debugging brain with gdb" in docs/DEVELOPMENT.md).
 RUN bash /tmp/awm/scripts/install_deps.sh \
     && apt-get install -y --no-install-recommends gdb \
     && rm -rf /var/lib/apt/lists/* /tmp/awm

@@ -1,5 +1,5 @@
 {
-  // Debug the brain node with gdb. See "Debugging with gdb" in the README.
+  // Debug the brain node with gdb. See "Debugging brain with gdb" in docs/DEVELOPMENT.md.
   "version": "0.2.0",
   "configurations": [
     {

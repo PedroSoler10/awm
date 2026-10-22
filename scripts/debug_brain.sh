@@ -12,7 +12,7 @@
 #   1. catkin_make -DCMAKE_BUILD_TYPE=Debug      (once, so gdb can show variables)
 #   2. roslaunch awm awm.launch brain:=false     (Gazebo, SLAM and navigation without brain)
 #   3. rosservice call /gazebo/pause_physics     (optional: freezes the world while you look)
-# See "Debugging with gdb" in the README for the gdb commands.
+# See "Debugging brain with gdb" in docs/DEVELOPMENT.md for the gdb commands.
 
 set -euo pipefail
 
