@@ -1,8 +1,8 @@
-# Goal points for the robot, in the "map" frame, best first.
+# Goal points for the robot, in the "map" frame, closest first.
 uint8 EXPLORATION=1   # frontier goals: free cells at the edge of the known map, not yet visited
-uint8 MEASUREMENT=2   # nearest unmeasured cells of /measure_map
+uint8 MEASUREMENT=2   # goals that measure the nearest cells of /measure_map still to be measured
 uint8 FUSION=3        # MEASUREMENT first; if empty, EXPLORATION
 uint8 mode
 uint8 num             # max goals returned, 0 = all
 ---
-geometry_msgs/Point[] points   # "map" frame, best first
+geometry_msgs/Point[] points   # "map" frame, closest first

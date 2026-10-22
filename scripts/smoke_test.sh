@@ -9,7 +9,7 @@
 #   scripts/smoke_test.sh [roslaunch args for awm.launch]
 # Examples:
 #   scripts/smoke_test.sh
-#   scripts/smoke_test.sh mode:=modular
+#   scripts/smoke_test.sh goal_mode:=2
 # Environment:
 #   MIN_CYCLES    measurements needed to pass (default 3)
 #   TIMEOUT_S     seconds to wait for them (default 300)

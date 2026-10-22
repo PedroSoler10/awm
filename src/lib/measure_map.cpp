@@ -9,20 +9,18 @@
 #include "awm/measure_map.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <ctime>
 #include <fstream>
+#include <set>
 #include <utility>
+
+#include "awm/safe_map.h"
 
 namespace awm {
 
 namespace {
-
-// Same cells at the same world positions.
-bool sameGeometry(const nav_msgs::MapMetaData& a, const nav_msgs::MapMetaData& b) {
-  return a.width == b.width && a.height == b.height && a.resolution == b.resolution &&
-         a.origin.position.x == b.origin.position.x && a.origin.position.y == b.origin.position.y;
-}
 
 // Marks as measured, in *to, the cells at the world positions of the measured cells of from.
 // Cells that are blocked in *to, or outside it, are left alone.
@@ -43,24 +41,46 @@ void carryOverMeasuredCells(const nav_msgs::OccupancyGrid& from, nav_msgs::Occup
   }
 }
 
+// The free cell of safe_map nearest to (x, y) within radius_m (cell centres), (x, y) itself if it
+// is free. Returns false if there is none.
+bool nearestFreeCell(const nav_msgs::OccupancyGrid& safe_map, int x, int y, double radius_m,
+                     GridCell* found) {
+  const double resolution = safe_map.info.resolution;
+  const int reach = static_cast<int>(std::ceil(radius_m / resolution));
+  double best = -1;
+  for (int ny = y - reach; ny <= y + reach; ny++) {
+    for (int nx = x - reach; nx <= x + reach; nx++) {
+      const std::int8_t* c = cell(safe_map, nx, ny);
+      const double distance = std::hypot(nx - x, ny - y) * resolution;
+      if (c == nullptr || *c != kSafeFree || distance > radius_m) continue;
+      if (best < 0 || distance < best) {
+        best = distance;
+        *found = {nx, ny};
+      }
+    }
+  }
+  return best >= 0;
+}
+
 }  // namespace
 
-void updateMeasureMap(const nav_msgs::OccupancyGrid& map, double robot_x, double robot_y,
-                      const MeasureMapParams& params, nav_msgs::OccupancyGrid* measure_map) {
-  // When the SLAM map grows its size and origin change, and the same index no longer is the same
+void updateMeasureMap(const nav_msgs::OccupancyGrid& safe_map, double robot_x, double robot_y,
+                      double measure_radius_m, nav_msgs::OccupancyGrid* measure_map) {
+  // When the map grows its size and origin change, and the same index no longer is the same
   // place: rebuild from the new map and carry the measured cells over by world position.
-  const bool new_geometry = !sameGeometry(measure_map->info, map.info);
+  const bool new_geometry = !sameGeometry(measure_map->info, safe_map.info);
   nav_msgs::OccupancyGrid old_measure_map;
   if (new_geometry) {
     old_measure_map = std::move(*measure_map);
-    *measure_map = map;
+    *measure_map = safe_map;
   }
 
-  // 1) Obstacles and unknown cells -> blocked. Other cells -> to measure, keeping those already
-  //    measured. After a geometry change the copied values come from the SLAM map, where 0 means
-  //    "free", not "measured", so everything is reset and step 2 restores the measured cells.
-  for (std::size_t k = 0; k < map.data.size(); k++) {
-    if (map.data[k] == -1 || map.data[k] > params.occupied_threshold)
+  // 1) Unknown and occupied cells -> blocked. Free and caution cells -> to measure, keeping those
+  //    already measured. After a geometry change the copied values come from the safe map, where
+  //    0 means "free", not "measured", so everything is reset and step 2 restores the measured
+  //    cells.
+  for (std::size_t k = 0; k < safe_map.data.size(); k++) {
+    if (safe_map.data[k] == kSafeUnknown || safe_map.data[k] == kSafeOccupied)
       measure_map->data[k] = kBlocked;
     else if (new_geometry || measure_map->data[k] != kMeasured)
       measure_map->data[k] = kToMeasure;
@@ -73,10 +93,42 @@ void updateMeasureMap(const nav_msgs::OccupancyGrid& map, double robot_x, double
   int x;
   int y;
   worldToGrid(*measure_map, robot_x, robot_y, &x, &y);
-  markDisk(measure_map, x, y, params.measure_radius_m, kMeasured, kBlocked);
+  markDisk(measure_map, x, y, measure_radius_m, kMeasured, kBlocked);
+}
 
-  // 4) Safety margin: cells next to an obstacle cannot be goals unless measured.
-  inflate(map, params.occupied_threshold, params.inflate_radius_cells, measure_map, kMeasured);
+bool findMeasurementGoals(const nav_msgs::OccupancyGrid& measure_map,
+                          const nav_msgs::OccupancyGrid& safe_map, double robot_x, double robot_y,
+                          int max_radius_cells, double measure_radius_m, int n,
+                          std::vector<geometry_msgs::Point>* goals) {
+  goals->clear();
+  int robot_cell_x;
+  int robot_cell_y;
+  worldToGrid(measure_map, robot_x, robot_y, &robot_cell_x, &robot_cell_y);
+  std::vector<GridCell> targets;
+  findNearestCells(measure_map, robot_cell_x, robot_cell_y, kToMeasure, max_radius_cells, 0,
+                   &targets);
+
+  // Targets near each other share a goal; it is offered once.
+  std::set<std::pair<int, int>> used;
+  for (const GridCell& target : targets) {
+    // The two maps normally share their geometry; going through world coordinates also works
+    // while the measure map is one update behind a map that just grew.
+    double world_x;
+    double world_y;
+    gridToWorld(measure_map, target.x, target.y, &world_x, &world_y);
+    int safe_x;
+    int safe_y;
+    worldToGrid(safe_map, world_x, world_y, &safe_x, &safe_y);
+    GridCell goal;
+    if (!nearestFreeCell(safe_map, safe_x, safe_y, measure_radius_m, &goal)) continue;
+    if (!used.insert({goal.x, goal.y}).second) continue;
+
+    geometry_msgs::Point point;
+    gridToWorld(safe_map, goal.x, goal.y, &point.x, &point.y);
+    goals->push_back(point);
+    if (n > 0 && static_cast<int>(goals->size()) == n) break;
+  }
+  return !goals->empty();
 }
 
 void removeMeasuredCells(const nav_msgs::OccupancyGrid& measure_map, std::vector<GridCell>* cells) {

@@ -26,7 +26,7 @@ nav_msgs::OccupancyGrid makeGrid(int width, int height, std::int8_t value) {
   return grid;
 }
 
-// Known free space for x < 10 and unknown for x >= 10: the frontier is the column x = 9.
+// A safe map with free space for x < 10 and unknown for x >= 10: the frontier is the column x = 9.
 nav_msgs::OccupancyGrid makeHalfKnownMap() {
   nav_msgs::OccupancyGrid map = makeGrid(20, 20, 0);
   for (int y = 0; y < 20; y++) {
@@ -45,10 +45,8 @@ bool contains(const std::vector<awm::GridCell>& cells, int x, int y) {
 }  // namespace
 
 TEST(Frontiers, KnownUnknownBoundaryIsOneCluster) {
-  const nav_msgs::OccupancyGrid map = makeHalfKnownMap();
-  const nav_msgs::OccupancyGrid safe = makeGrid(20, 20, 0);
   std::vector<awm::GridCell> cells;
-  ASSERT_TRUE(awm::findFrontierCells(map, safe, &cells));
+  ASSERT_TRUE(awm::findFrontierCells(makeHalfKnownMap(), &cells));
   EXPECT_EQ(cells.size(), 20u);  // The whole column x = 9, corners included.
   for (const awm::GridCell& c : cells) EXPECT_EQ(c.x, 9);
 
@@ -60,40 +58,39 @@ TEST(Frontiers, KnownUnknownBoundaryIsOneCluster) {
 
 TEST(Frontiers, DiagonalUnknownNeighbourCounts) {
   // A free cell that touches unknown only at a corner is a frontier: the check is 3x3.
-  nav_msgs::OccupancyGrid map = makeGrid(5, 5, 0);
-  *awm::cell(&map, 3, 3) = -1;
-  const nav_msgs::OccupancyGrid safe = makeGrid(5, 5, 0);
+  nav_msgs::OccupancyGrid safe = makeGrid(5, 5, 0);
+  *awm::cell(&safe, 3, 3) = -1;
   std::vector<awm::GridCell> cells;
-  ASSERT_TRUE(awm::findFrontierCells(map, safe, &cells));
+  ASSERT_TRUE(awm::findFrontierCells(safe, &cells));
   EXPECT_EQ(cells.size(), 8u);  // The 8 cells around (3, 3), diagonals included.
   EXPECT_TRUE(contains(cells, 2, 2));
   EXPECT_TRUE(contains(cells, 4, 4));
   EXPECT_FALSE(contains(cells, 3, 3));  // The unknown cell itself is not free.
 }
 
-TEST(Frontiers, OnlyFreeCellsInBothMaps) {
-  nav_msgs::OccupancyGrid map = makeHalfKnownMap();
-  nav_msgs::OccupancyGrid safe = makeGrid(20, 20, 0);
-  *awm::cell(&map, 9, 4) = 100;  // Obstacle: not free.
-  *awm::cell(&safe, 9, 5) = 50;  // In the caution band.
-  *awm::cell(&safe, 9, 6) = -1;  // Unknown to the safe map.
+TEST(Frontiers, OnlyFreeCells) {
+  nav_msgs::OccupancyGrid safe = makeHalfKnownMap();
+  *awm::cell(&safe, 9, 4) = 100;  // Obstacle.
+  *awm::cell(&safe, 9, 5) = 50;   // In the caution band.
   std::vector<awm::GridCell> cells;
-  ASSERT_TRUE(awm::findFrontierCells(map, safe, &cells));
-  EXPECT_EQ(cells.size(), 17u);
+  ASSERT_TRUE(awm::findFrontierCells(safe, &cells));
+  EXPECT_EQ(cells.size(), 18u);
   EXPECT_FALSE(contains(cells, 9, 4));
   EXPECT_FALSE(contains(cells, 9, 5));
-  EXPECT_FALSE(contains(cells, 9, 6));
+  EXPECT_TRUE(contains(cells, 9, 6));
 }
 
 TEST(Frontiers, FullyKnownMapHasNone) {
   std::vector<awm::GridCell> cells = {{1, 1}};
-  EXPECT_TRUE(awm::findFrontierCells(makeGrid(8, 8, 0), makeGrid(8, 8, 0), &cells));
+  EXPECT_TRUE(awm::findFrontierCells(makeGrid(8, 8, 0), &cells));
   EXPECT_TRUE(cells.empty());
 }
 
-TEST(Frontiers, MapsOfDifferentSizeAreRejected) {
+TEST(Frontiers, ShortDataIsRejected) {
+  nav_msgs::OccupancyGrid safe = makeGrid(8, 8, 0);
+  safe.data.resize(60);
   std::vector<awm::GridCell> cells = {{1, 1}};
-  EXPECT_FALSE(awm::findFrontierCells(makeGrid(8, 8, 0), makeGrid(9, 8, 0), &cells));
+  EXPECT_FALSE(awm::findFrontierCells(safe, &cells));
   EXPECT_TRUE(cells.empty());
 }
 

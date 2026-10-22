@@ -99,6 +99,15 @@ TEST(Grid, CellBeyondShortDataIsNull) {
   EXPECT_EQ(awm::cell(static_cast<const nav_msgs::OccupancyGrid&>(grid), 3, 2), nullptr);
 }
 
+TEST(Grid, SameGeometry) {
+  nav_msgs::OccupancyGrid a = makeGrid(4, 3, 0);
+  nav_msgs::OccupancyGrid b = makeGrid(4, 3, -1);  // Values do not matter.
+  EXPECT_TRUE(awm::sameGeometry(a.info, b.info));
+  b.info.origin.position.y = 0.05;
+  EXPECT_FALSE(awm::sameGeometry(a.info, b.info));
+  EXPECT_FALSE(awm::sameGeometry(a.info, makeGrid(5, 3, 0).info));
+}
+
 TEST(Grid, HasFullData) {
   nav_msgs::OccupancyGrid grid = makeGrid(4, 3, 0);
   EXPECT_TRUE(awm::hasFullData(grid));
@@ -127,30 +136,6 @@ TEST(Grid, MarkDiskKeepsValueAndClipsAtBorder) {
   awm::markDisk(&grid, 0, 0, 0.11, 0, 100);  // Centre in the corner: only a quarter fits.
   EXPECT_EQ(*awm::cell(grid, 1, 0), 100);
   EXPECT_EQ(countValue(grid, 0), 5);  // (0,0) (2,0) (0,1) (1,1) (0,2).
-}
-
-TEST(Grid, InflateKeepsMeasuredCells) {
-  nav_msgs::OccupancyGrid source = makeGrid(9, 9, 0);
-  *awm::cell(&source, 4, 4) = 100;
-  nav_msgs::OccupancyGrid target = makeGrid(9, 9, -1);
-  *awm::cell(&target, 5, 5) = 0;  // Measured, inside the margin.
-  *awm::cell(&target, 7, 7) = 0;  // Measured, outside the margin.
-
-  awm::inflate(source, 90, 2, &target, 0);
-
-  EXPECT_EQ(*awm::cell(target, 5, 5), 0);
-  EXPECT_EQ(*awm::cell(target, 7, 7), 0);
-  EXPECT_EQ(*awm::cell(target, 2, 2), 100);  // Corner of the 5x5 square.
-  EXPECT_EQ(*awm::cell(target, 6, 4), 100);
-  EXPECT_EQ(*awm::cell(target, 1, 4), -1);  // Just outside.
-  EXPECT_EQ(countValue(target, 100), 24);   // 25 cells minus the measured one.
-}
-
-TEST(Grid, InflateIgnoresCellsAtThreshold) {
-  nav_msgs::OccupancyGrid source = makeGrid(5, 5, 90);
-  nav_msgs::OccupancyGrid target = makeGrid(5, 5, -1);
-  awm::inflate(source, 90, 1, &target, 0);
-  EXPECT_EQ(countValue(target, 100), 0);
 }
 
 TEST(Grid, FindNearestCellReturnsClosest) {

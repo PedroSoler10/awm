@@ -7,15 +7,17 @@
  */
 
 /*
- * The measure map: a nav_msgs/OccupancyGrid the size of the SLAM map, with our own meaning:
- *   100  obstacle, unknown, or too close to an obstacle (cannot be a goal)
- *     0  free cell already measured
- *    -1  free cell still to be measured  <- candidates for the next goal
+ * The measure map: a nav_msgs/OccupancyGrid built on the safe map (awm/safe_map.h), with our own
+ * meaning. It says what has been measured; where goals may go is the safe map's job.
+ *   100  unknown or occupied: never measured
+ *     0  measured
+ *    -1  still to be measured: free or caution cells (next to walls too)
  */
 
 #ifndef AWM_MEASURE_MAP_H_
 #define AWM_MEASURE_MAP_H_
 
+#include <geometry_msgs/Point.h>
 #include <geometry_msgs/Pose.h>
 #include <nav_msgs/OccupancyGrid.h>
 
@@ -31,17 +33,23 @@ constexpr std::int8_t kBlocked = 100;
 constexpr std::int8_t kMeasured = 0;
 constexpr std::int8_t kToMeasure = -1;
 
-struct MeasureMapParams {
-  double measure_radius_m;   // Cells this close to the robot are measured.
-  int inflate_radius_cells;  // Safety margin around obstacles.
-  int occupied_threshold;    // Occupancy above this is an obstacle.
-};
+// Rebuilds *measure_map from the safe map and the robot position (metres, "map" frame): cells
+// within measure_radius_m of the robot are now measured. Cells measured before stay measured,
+// unless the safe map now says unknown or occupied. When the safe map changes geometry (SLAM grew
+// the map: new size and origin), they are carried over by world position.
+void updateMeasureMap(const nav_msgs::OccupancyGrid& safe_map, double robot_x, double robot_y,
+                      double measure_radius_m, nav_msgs::OccupancyGrid* measure_map);
 
-// Rebuilds *measure_map from the SLAM map and the robot position (metres, "map" frame). Cells
-// measured before stay measured, unless the SLAM map now blocks them. When the SLAM map changes
-// geometry (it grows: new size and origin), they are carried over by world position.
-void updateMeasureMap(const nav_msgs::OccupancyGrid& map, double robot_x, double robot_y,
-                      const MeasureMapParams& params, nav_msgs::OccupancyGrid* measure_map);
+// Goals that measure the cells still to be measured nearest to the robot (ring search on
+// measure_map from the robot, up to max_radius_cells). A target that is free in safe_map is its
+// own goal. A target too close to an obstacle (caution) is measured from the free cell of
+// safe_map nearest to it within measure_radius_m. Targets with no such cell are skipped. Collects
+// up to n different goals (n = 0: all), nearest target first, as world positions of safe_map
+// cell centres. *goals is cleared first; returns false if it stays empty.
+bool findMeasurementGoals(const nav_msgs::OccupancyGrid& measure_map,
+                          const nav_msgs::OccupancyGrid& safe_map, double robot_x, double robot_y,
+                          int max_radius_cells, double measure_radius_m, int n,
+                          std::vector<geometry_msgs::Point>* goals);
 
 // Removes from *cells the cells that measure_map marks as measured, keeping the order of the
 // others. Used to stop offering goals the robot has already been to. Cells outside the measure map

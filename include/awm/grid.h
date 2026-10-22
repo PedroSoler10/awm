@@ -41,6 +41,9 @@ void gridToWorld(const nav_msgs::OccupancyGrid& grid, int x, int y, double* worl
 // True if data holds exactly width * height cells, as every message from SLAM should.
 bool hasFullData(const nav_msgs::OccupancyGrid& grid);
 
+// True if two grids have the same cells at the same world positions (size, resolution, origin).
+bool sameGeometry(const nav_msgs::MapMetaData& a, const nav_msgs::MapMetaData& b);
+
 // Cell (x, y) of the grid, or nullptr if it is outside the grid (or beyond the end of data).
 std::int8_t* cell(nav_msgs::OccupancyGrid* grid, int x, int y);
 const std::int8_t* cell(const nav_msgs::OccupancyGrid& grid, int x, int y);
@@ -48,12 +51,6 @@ const std::int8_t* cell(const nav_msgs::OccupancyGrid& grid, int x, int y);
 // Sets to `value` every cell within radius_m metres of (cx, cy), except cells equal to keep_value.
 void markDisk(nav_msgs::OccupancyGrid* grid, int cx, int cy, double radius_m, std::int8_t value,
               std::int8_t keep_value);
-
-// For every source cell above threshold, sets to 100 the target cells in the square of
-// radius_cells around it, except cells equal to keep_value. source and target must have the same
-// size: source decides where the obstacles are, target receives the margin.
-void inflate(const nav_msgs::OccupancyGrid& source, int threshold, int radius_cells,
-             nav_msgs::OccupancyGrid* target, std::int8_t keep_value);
 
 // Looks for cells equal to wanted_value on circles of growing radius d = 0..max_radius_cells
 // around (x0, y0), sweeping the angle from 0 to 359 degrees, and collects up to n different ones,

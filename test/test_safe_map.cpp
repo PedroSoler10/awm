@@ -21,17 +21,17 @@
 
 namespace {
 
-constexpr int kOccupied = 90;
-constexpr int kCaution = 50;
+constexpr int kOccupied = 80;
+constexpr double kMargin = 0.40;  // 8 cells of 5 cm.
 
-// A 10x10 grid of free cells, 5 cm each, with one obstacle at (5, 5).
+// A 21x21 grid of free cells, 5 cm each, with one obstacle at the centre (10, 10).
 nav_msgs::OccupancyGrid makeMap() {
   nav_msgs::OccupancyGrid map;
-  map.info.width = 10;
-  map.info.height = 10;
+  map.info.width = 21;
+  map.info.height = 21;
   map.info.resolution = 0.05;
-  map.data.assign(100, 0);
-  *awm::cell(&map, 5, 5) = 100;
+  map.data.assign(21 * 21, 0);
+  *awm::cell(&map, 10, 10) = 100;
   return map;
 }
 
@@ -41,80 +41,73 @@ std::int8_t at(const nav_msgs::OccupancyGrid& grid, int x, int y) { return *awm:
 
 TEST(SafeMap, DiscretisesValues) {
   nav_msgs::OccupancyGrid map = makeMap();
-  *awm::cell(&map, 0, 0) = 89;  // free but not an obstacle
-  *awm::cell(&map, 9, 0) = 60;  // uncertain
-  *awm::cell(&map, 0, 9) = -1;  // unknown
-  *awm::cell(&map, 9, 9) = 90;  // exactly the threshold is occupied
+  *awm::cell(&map, 0, 0) = 79;    // Below the threshold: free, so it will be measured.
+  *awm::cell(&map, 20, 0) = 80;   // Exactly the threshold: occupied.
+  *awm::cell(&map, 0, 20) = -1;   // Unknown.
+  *awm::cell(&map, 20, 20) = 55;  // Uncertain, still free.
   nav_msgs::OccupancyGrid safe;
-  awm::makeSafeMap(map, kOccupied, kCaution, 0, &safe);
-  EXPECT_EQ(50, at(safe, 0, 0));
-  EXPECT_EQ(50, at(safe, 9, 0));
-  EXPECT_EQ(-1, at(safe, 0, 9));
-  EXPECT_EQ(100, at(safe, 9, 9));
-  EXPECT_EQ(100, at(safe, 5, 5));
-  EXPECT_EQ(0, at(safe, 4, 4));
+  awm::makeSafeMap(map, kOccupied, 0.0, &safe);  // No margin.
+  EXPECT_EQ(awm::kSafeFree, at(safe, 0, 0));
+  EXPECT_EQ(awm::kSafeOccupied, at(safe, 20, 0));
+  EXPECT_EQ(awm::kSafeUnknown, at(safe, 0, 20));
+  EXPECT_EQ(awm::kSafeFree, at(safe, 20, 20));
+  EXPECT_EQ(awm::kSafeOccupied, at(safe, 10, 10));
+  EXPECT_EQ(awm::kSafeFree, at(safe, 9, 10));
 }
 
 TEST(SafeMap, KeepsHeaderAndSize) {
   nav_msgs::OccupancyGrid map = makeMap();
   map.header.frame_id = "map";
   nav_msgs::OccupancyGrid safe;
-  awm::makeSafeMap(map, kOccupied, kCaution, 2, &safe);
+  awm::makeSafeMap(map, kOccupied, kMargin, &safe);
   EXPECT_EQ("map", safe.header.frame_id);
   EXPECT_EQ(map.info.width, safe.info.width);
   EXPECT_EQ(map.data.size(), safe.data.size());
 }
 
-TEST(SafeMap, CautionBandAroundObstacle) {
+TEST(SafeMap, MarginIsARoundDistance) {
   nav_msgs::OccupancyGrid safe;
-  awm::makeSafeMap(makeMap(), kOccupied, kCaution, 2, &safe);
-  for (int y = 3; y <= 7; y++) {
-    for (int x = 3; x <= 7; x++) {
-      if (x == 5 && y == 5) continue;
-      EXPECT_EQ(50, at(safe, x, y)) << x << "," << y;
-    }
-  }
-  EXPECT_EQ(100, at(safe, 5, 5));  // the obstacle itself is not turned into caution
-  EXPECT_EQ(0, at(safe, 2, 5));
-  EXPECT_EQ(0, at(safe, 8, 5));
-  EXPECT_EQ(0, at(safe, 5, 2));
-  EXPECT_EQ(0, at(safe, 5, 8));
+  awm::makeSafeMap(makeMap(), kOccupied, kMargin, &safe);
+  EXPECT_EQ(awm::kSafeCaution, at(safe, 17, 10));  // 0.35 m.
+  EXPECT_EQ(awm::kSafeFree, at(safe, 18, 10));     // Exactly 0.40 m: allowed.
+  EXPECT_EQ(awm::kSafeFree, at(safe, 10, 2));
+  EXPECT_EQ(awm::kSafeCaution, at(safe, 15, 15));  // Diagonal 0.354 m.
+  EXPECT_EQ(awm::kSafeCaution, at(safe, 15, 16));  // 0.391 m.
+  EXPECT_EQ(awm::kSafeFree, at(safe, 16, 16));     // 0.424 m: a square margin would block it.
+  EXPECT_EQ(awm::kSafeOccupied, at(safe, 10, 10));
 }
 
 TEST(SafeMap, BandReachesTheBorders) {
   nav_msgs::OccupancyGrid map = makeMap();
   *awm::cell(&map, 0, 0) = 100;
-  *awm::cell(&map, 9, 9) = 100;
   nav_msgs::OccupancyGrid safe;
-  awm::makeSafeMap(map, kOccupied, kCaution, 1, &safe);
-  // Row 0 and column 0 are inside the grid: the old "> 0" test skipped them.
-  EXPECT_EQ(50, at(safe, 1, 0));
-  EXPECT_EQ(50, at(safe, 0, 1));
-  EXPECT_EQ(50, at(safe, 1, 1));
-  EXPECT_EQ(50, at(safe, 8, 9));
-  EXPECT_EQ(50, at(safe, 9, 8));
+  awm::makeSafeMap(map, kOccupied, 0.10, &safe);
+  EXPECT_EQ(awm::kSafeCaution, at(safe, 1, 0));
+  EXPECT_EQ(awm::kSafeCaution, at(safe, 0, 1));
+  EXPECT_EQ(awm::kSafeCaution, at(safe, 1, 1));
+  EXPECT_EQ(awm::kSafeFree, at(safe, 2, 0));  // Exactly 0.10 m.
 }
 
 TEST(SafeMap, UnknownStaysUnknownNextToObstacle) {
   nav_msgs::OccupancyGrid map = makeMap();
-  *awm::cell(&map, 6, 5) = -1;
+  *awm::cell(&map, 11, 10) = -1;
   nav_msgs::OccupancyGrid safe;
-  awm::makeSafeMap(map, kOccupied, kCaution, 2, &safe);
-  EXPECT_EQ(-1, at(safe, 6, 5));
-  EXPECT_EQ(50, at(safe, 6, 6));
+  awm::makeSafeMap(map, kOccupied, kMargin, &safe);
+  EXPECT_EQ(awm::kSafeUnknown, at(safe, 11, 10));
+  EXPECT_EQ(awm::kSafeCaution, at(safe, 11, 11));
 }
 
 TEST(SafeMap, BandIsNotChainedFromCautionCells) {
   nav_msgs::OccupancyGrid safe;
-  awm::makeSafeMap(makeMap(), kOccupied, kCaution, 1, &safe);
-  EXPECT_EQ(50, at(safe, 4, 4));
-  EXPECT_EQ(0, at(safe, 3, 3));  // one step further would mean the band grew from itself
+  awm::makeSafeMap(makeMap(), kOccupied, 0.06, &safe);
+  EXPECT_EQ(awm::kSafeCaution, at(safe, 11, 10));
+  EXPECT_EQ(awm::kSafeFree, at(safe, 12, 10));  // One step further would mean the band grew.
 }
 
 TEST(SafeMap, EmptyMapIsFine) {
   nav_msgs::OccupancyGrid map;
   nav_msgs::OccupancyGrid safe;
-  awm::makeSafeMap(map, kOccupied, kCaution, 6, &safe);
+  awm::makeSafeMap(map, kOccupied, kMargin, &safe);
   EXPECT_TRUE(safe.data.empty());
 }
 

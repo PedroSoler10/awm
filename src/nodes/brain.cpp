@@ -25,11 +25,12 @@
  *   ~goal_mode [3] (1 EXPLORATION, 2 MEASUREMENT, 3 FUSION), ~measure_duration_s [1.0],
  *   ~measure_radius_m [0.5], ~output_dir [.] for the measurement files
  *
- * Grid values (nav_msgs/OccupancyGrid): -1 unknown, 0 free, 100 occupied. Cell (x, y) is stored at
- * data[y * width + x]. In measure_map (same message type, our own meaning):
- *   100  obstacle, unknown, or too close to an obstacle (cannot be a goal)
- *     0  free cell already measured
- *    -1  free cell still to be measured  <- candidates for the next goal
+ * Grid values (nav_msgs/OccupancyGrid): cell (x, y) is stored at data[y * width + x]. Safe map
+ * (awm/safe_map.h): -1 unknown, 0 free, 50 caution (too close to an obstacle for a goal), 100
+ * occupied. In measure_map (awm/measure_map.h, same message type, our own meaning):
+ *   100  unknown or occupied: never measured
+ *     0  measured
+ *    -1  free or caution cell still to be measured
  */
 
 // C system headers (.h): ROS core and ROS messages
@@ -40,6 +41,8 @@
 #include <ros/ros.h>
 
 // C++ standard library (no .h suffix)
+#include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <string>
 
@@ -49,7 +52,6 @@
 #include "awm/grid.h"
 #include "awm/measure_map.h"
 #include "awm/robot_pose.h"
-#include "awm/safe_map.h"
 
 class Brain {
  public:
@@ -68,11 +70,7 @@ class Brain {
     goal_mode_ = static_cast<std::uint8_t>(goal_mode);
 
     pnh.param("measure_duration_s", measure_duration_s_, 1.0);
-    pnh.param("measure_radius_m", measure_params_.measure_radius_m, 0.5);
-    // The caution band of the safe map (value 50) already is the margin around obstacles: cells
-    // from 50 up are blocked and no extra inflation is needed.
-    measure_params_.inflate_radius_cells = 0;
-    measure_params_.occupied_threshold = awm::kSafeCaution - 1;
+    pnh.param("measure_radius_m", measure_radius_m_, 0.5);
     pnh.param("output_dir", output_dir_, std::string("."));
 
     // Queues of 1: only the latest pose and map matter.
@@ -123,8 +121,15 @@ class Brain {
 
       case State::MEASURING:
         if (!measure()) break;
-        // The goal source logs why it has no goal left.
-        state_ = sendGoal() ? State::REACHING_GOAL : State::DONE;
+        if (sendGoal()) {
+          state_ = State::REACHING_GOAL;
+        } else {
+          // Left over: cells with no free cell within measure_radius_m to measure them from.
+          const auto left =
+              std::count(measure_map_.data.begin(), measure_map_.data.end(), awm::kToMeasure);
+          ROS_INFO("DONE: %zu CELLS COULD NOT BE MEASURED", static_cast<std::size_t>(left));
+          state_ = State::DONE;
+        }
         break;
 
       case State::REACHING_GOAL: {
@@ -139,8 +144,8 @@ class Brain {
           int goal_x;
           int goal_y;
           awm::worldToGrid(measure_map_, goal_pose_.pose, &goal_x, &goal_y);
-          awm::markDisk(&measure_map_, goal_x, goal_y, measure_params_.measure_radius_m,
-                        awm::kMeasured, awm::kBlocked);
+          awm::markDisk(&measure_map_, goal_x, goal_y, measure_radius_m_, awm::kMeasured,
+                        awm::kBlocked);
           startMeasuring();
         }
         break;
@@ -177,7 +182,7 @@ class Brain {
   // Rebuilds measure_map_ from the latest map and the current robot position, then publishes.
   void updateMeasureMap() {
     awm::updateMeasureMap(*map_, scan_pose_.pose.position.x, scan_pose_.pose.position.y,
-                          measure_params_, &measure_map_);
+                          measure_radius_m_, &measure_map_);
     measure_map_.header.stamp = ros::Time::now();
     pub_measure_map_.publish(measure_map_);
   }
@@ -209,8 +214,8 @@ class Brain {
   ros::NodeHandle n_;
 
   double measure_duration_s_;  // Time standing still per measurement.
-  awm::MeasureMapParams measure_params_;
-  std::string output_dir_;                                     // Where the measurement files go.
+  double measure_radius_m_;    // Cells this close to a measurement are measured.
+  std::string output_dir_;     // Where the measurement files go.
   std::uint8_t goal_mode_ = awm::GoalPoints::Request::FUSION;  // Asked from /goal_points.
 
   awm::RobotPose robot_pose_;

@@ -13,7 +13,8 @@
  * Publishes:  /safe_map  (nav_msgs/OccupancyGrid, latched)  -1 unknown, 0 free, 50 caution, 100
  *                                                          occupied (see awm/safe_map.h)
  * Private params (defaults in brackets):
- *   ~occupied_threshold [90], ~caution_threshold [50], ~inflate_radius_cells [6],
+ *   ~occupied_threshold [80] occupancy from this value up is an obstacle,
+ *   ~obstacle_margin_m [0.40] free cells closer than this to an obstacle are caution (no goals),
  *   ~dump_maps [false] write map.txt and safe_map.txt on every map, ~dump_dir [.]
  */
 
@@ -31,9 +32,8 @@ class MapProcessing {
   // The constructor only sets up. The work happens in mapCallback().
   MapProcessing() {
     ros::NodeHandle pnh("~");
-    pnh.param("occupied_threshold", occupied_threshold_, 90);
-    pnh.param("caution_threshold", caution_threshold_, 50);
-    pnh.param("inflate_radius_cells", inflate_radius_cells_, 6);
+    pnh.param("occupied_threshold", occupied_threshold_, 80);
+    pnh.param("obstacle_margin_m", obstacle_margin_m_, 0.40);
     pnh.param("dump_maps", dump_maps_, false);
     pnh.param("dump_dir", dump_dir_, std::string("."));
 
@@ -51,8 +51,7 @@ class MapProcessing {
  private:
   void mapCallback(const nav_msgs::OccupancyGrid& map) {
     nav_msgs::OccupancyGrid safe_map;
-    awm::makeSafeMap(map, occupied_threshold_, caution_threshold_, inflate_radius_cells_,
-                     &safe_map);
+    awm::makeSafeMap(map, occupied_threshold_, obstacle_margin_m_, &safe_map);
     pub_safe_map_.publish(safe_map);
 
     if (dump_maps_) {
@@ -67,8 +66,7 @@ class MapProcessing {
   ros::Subscriber sub_map_;
   ros::Publisher pub_safe_map_;
   int occupied_threshold_;
-  int caution_threshold_;
-  int inflate_radius_cells_;
+  double obstacle_margin_m_;
   bool dump_maps_;
   std::string dump_dir_;
 };

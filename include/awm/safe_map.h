@@ -7,10 +7,11 @@
  */
 
 /*
- * The safe map: the SLAM map reduced to four values, with a caution band around obstacles.
+ * The safe map: the SLAM map reduced to four values, with a caution band around obstacles. It
+ * says where the robot may go: goals are only placed on free cells.
  *   -1  unknown
  *    0  free
- *   50  caution: uncertain occupancy, or within the inflate radius of an obstacle
+ *   50  caution: free, but closer than the margin to an obstacle
  *  100  occupied
  */
 
@@ -28,12 +29,12 @@ constexpr std::int8_t kSafeFree = 0;
 constexpr std::int8_t kSafeCaution = 50;
 constexpr std::int8_t kSafeOccupied = 100;
 
-// Builds *safe_map from map (header and metadata are copied). Occupancy >= occupied_threshold is
-// occupied, >= caution_threshold is caution, >= 0 is free, negative is unknown. Free cells inside
-// the square of inflate_radius_cells around an occupied cell become caution. The band is computed
-// from the source map, so it never turns an occupied or unknown cell into caution.
-void makeSafeMap(const nav_msgs::OccupancyGrid& map, int occupied_threshold, int caution_threshold,
-                 int inflate_radius_cells, nav_msgs::OccupancyGrid* safe_map);
+// Builds *safe_map from map (header and metadata are copied). Negative occupancy is unknown,
+// occupancy >= occupied_threshold is occupied, anything else is free. Free cells closer than
+// margin_m to an occupied cell (distance between cell centres) become caution; a cell exactly
+// margin_m away stays free. Unknown and occupied cells are never turned into caution.
+void makeSafeMap(const nav_msgs::OccupancyGrid& map, int occupied_threshold, double margin_m,
+                 nav_msgs::OccupancyGrid* safe_map);
 
 }  // namespace awm
 

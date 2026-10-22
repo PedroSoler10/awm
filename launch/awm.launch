@@ -36,6 +36,9 @@
   <arg name="rviz_config" default="$(find awm)/rviz/awm.rviz" doc="RViz configuration file (awm.rviz: TurtleBot3 navigation view plus /safe_map and /measure_map)"/>
   <arg name="brain" default="true" doc="run the awm brain node"/>
   <arg name="goal_mode" default="3" doc="mode brain asks from /goal_points [1 EXPLORATION, 2 MEASUREMENT, 3 FUSION]"/>
+  <arg name="occupied_threshold" default="80" doc="SLAM occupancy from this value up is an obstacle; every known cell below it is measured"/>
+  <arg name="obstacle_margin_m" default="0.40" doc="no goal is placed closer than this to an obstacle, in meters"/>
+  <arg name="measure_radius_m" default="0.5" doc="cells this close to a measurement count as measured, in meters"/>
 
   <!-- Gazebo, the robot model and its spawn -->
   <group if="$(arg sim)">
@@ -87,9 +90,15 @@
 
   <!-- AWM. map_processing and points_identification also run with brain:=false, so brain can be
        started by hand (rosrun awm brain) or under gdb. -->
-  <node pkg="awm" type="map_processing" name="map_processing" output="screen"/>
-  <node pkg="awm" type="points_identification" name="points_identification" output="screen"/>
+  <node pkg="awm" type="map_processing" name="map_processing" output="screen">
+    <param name="occupied_threshold" value="$(arg occupied_threshold)"/>
+    <param name="obstacle_margin_m" value="$(arg obstacle_margin_m)"/>
+  </node>
+  <node pkg="awm" type="points_identification" name="points_identification" output="screen">
+    <param name="measure_radius_m" value="$(arg measure_radius_m)"/>
+  </node>
   <node if="$(arg brain)" pkg="awm" type="brain" name="brain" output="screen">
     <param name="goal_mode" value="$(arg goal_mode)"/>
+    <param name="measure_radius_m" value="$(arg measure_radius_m)"/>
   </node>
 </launch>

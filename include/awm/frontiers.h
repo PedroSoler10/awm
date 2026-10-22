@@ -23,12 +23,10 @@
 
 namespace awm {
 
-// Cells that are free in map (value 0), have at least one unknown cell among their 8 neighbours,
-// and are free in safe_map too (so not inside the caution band of a wall). *cells is cleared
-// first and filled in row-major order. Returns false, with *cells empty, if the two maps differ in
-// size.
-bool findFrontierCells(const nav_msgs::OccupancyGrid& map, const nav_msgs::OccupancyGrid& safe_map,
-                       std::vector<GridCell>* cells);
+// Cells of the safe map (awm/safe_map.h) that are free (so not in the caution band of a wall) and
+// have at least one unknown cell among their 8 neighbours. *cells is cleared first and filled in
+// row-major order. Returns false, with *cells empty, if data does not hold width * height cells.
+bool findFrontierCells(const nav_msgs::OccupancyGrid& safe_map, std::vector<GridCell>* cells);
 
 // Groups cells that touch (8-connectivity) and drops the groups with fewer than min_cluster_size
 // cells, which are usually noise. width is the width of the grid the cells come from. *clusters is

@@ -36,6 +36,11 @@ bool hasFullData(const nav_msgs::OccupancyGrid& grid) {
   return grid.data.size() == static_cast<std::size_t>(grid.info.width) * grid.info.height;
 }
 
+bool sameGeometry(const nav_msgs::MapMetaData& a, const nav_msgs::MapMetaData& b) {
+  return a.width == b.width && a.height == b.height && a.resolution == b.resolution &&
+         a.origin.position.x == b.origin.position.x && a.origin.position.y == b.origin.position.y;
+}
+
 namespace {
 
 // Index of cell (x, y) in grid.data, or false if the cell is outside the grid. data is checked
@@ -68,21 +73,6 @@ void markDisk(nav_msgs::OccupancyGrid* grid, int cx, int cy, double radius_m, st
       std::int8_t* c = cell(grid, x, y);
       const double distance = std::hypot(x - cx, y - cy) * grid->info.resolution;
       if (c != nullptr && distance <= radius_m && *c != keep_value) *c = value;
-    }
-  }
-}
-
-void inflate(const nav_msgs::OccupancyGrid& source, int threshold, int radius_cells,
-             nav_msgs::OccupancyGrid* target, std::int8_t keep_value) {
-  for (std::size_t k = 0; k < source.data.size(); k++) {
-    if (source.data[k] <= threshold) continue;
-    const int x = k % source.info.width;
-    const int y = k / source.info.width;
-    for (int ny = y - radius_cells; ny <= y + radius_cells; ny++) {
-      for (int nx = x - radius_cells; nx <= x + radius_cells; nx++) {
-        std::int8_t* c = cell(target, nx, ny);
-        if (c != nullptr && *c != keep_value) *c = 100;
-      }
     }
   }
 }

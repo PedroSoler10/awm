@@ -19,8 +19,6 @@ namespace awm {
 
 namespace {
 
-constexpr std::int8_t kFree = 0;
-
 bool hasUnknownNeighbour(const nav_msgs::OccupancyGrid& map, int x, int y) {
   for (int ny = y - 1; ny <= y + 1; ny++) {
     for (int nx = x - 1; nx <= x + 1; nx++) {
@@ -37,17 +35,13 @@ double squaredDistance(double x0, double y0, double x1, double y1) {
 
 }  // namespace
 
-bool findFrontierCells(const nav_msgs::OccupancyGrid& map, const nav_msgs::OccupancyGrid& safe_map,
-                       std::vector<GridCell>* cells) {
+bool findFrontierCells(const nav_msgs::OccupancyGrid& safe_map, std::vector<GridCell>* cells) {
   cells->clear();
-  if (map.info.width != safe_map.info.width || map.info.height != safe_map.info.height ||
-      !hasFullData(map) || !hasFullData(safe_map))
-    return false;
+  if (!hasFullData(safe_map)) return false;
 
-  for (int y = 0; y < static_cast<int>(map.info.height); y++) {
-    for (int x = 0; x < static_cast<int>(map.info.width); x++) {
-      if (*cell(map, x, y) == kFree && *cell(safe_map, x, y) == kSafeFree &&
-          hasUnknownNeighbour(map, x, y))
+  for (int y = 0; y < static_cast<int>(safe_map.info.height); y++) {
+    for (int x = 0; x < static_cast<int>(safe_map.info.width); x++) {
+      if (*cell(safe_map, x, y) == kSafeFree && hasUnknownNeighbour(safe_map, x, y))
         cells->push_back({x, y});
     }
   }
