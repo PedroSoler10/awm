@@ -21,6 +21,9 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
+
+#include "awm/grid.h"
 
 namespace awm {
 
@@ -39,9 +42,15 @@ struct MeasureMapParams {
 void updateMeasureMap(const nav_msgs::OccupancyGrid& map, double robot_x, double robot_y,
                       const MeasureMapParams& params, nav_msgs::OccupancyGrid* measure_map);
 
+// Removes from *cells the cells that measure_map marks as measured, keeping the order of the
+// others. Used to stop offering goals the robot has already been to. Cells outside the measure map
+// are kept.
+void removeMeasuredCells(const nav_msgs::OccupancyGrid& measure_map, std::vector<GridCell>* cells);
+
 // Placeholder for the real measurement: creates an empty file in dir named after the position and
-// the local time, e.g. "1.2_-0.5_2026-10-21T10-30-05.txt". Writes the name (without dir) to
-// *file_name and returns false if the file could not be created.
+// the local time, e.g. "1.200000_-0.500000_2026-10-21T10-30-05.txt" (std::to_string keeps six
+// decimals). Writes the name (without dir) to *file_name and returns false if the file could not
+// be created.
 bool writeMeasurementFile(const std::string& dir, const geometry_msgs::Pose& pose,
                           std::string* file_name);
 

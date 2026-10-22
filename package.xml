@@ -25,12 +25,9 @@
 
   <!-- Packages used by the C++ code in src/. "depend" means needed to build,
        and to run, and passed on to packages that depend on awm.
-       Must match the find_package list in CMakeLists.txt.
-       Boost is not listed here: it is a C++ library, not a ROS package, and
-       it is installed with roscpp. CMakeLists.txt finds it. -->
+       Must match the find_package list in CMakeLists.txt. -->
   <depend>actionlib_msgs</depend>      <!-- move_base goal status -->
   <depend>geometry_msgs</depend>       <!-- PoseStamped -->
-  <depend>move_base_msgs</depend>      <!-- move_base messages -->
   <depend>nav_msgs</depend>            <!-- OccupancyGrid (the map) -->
   <depend>roscpp</depend>              <!-- ros::init, publishers, subscribers -->
   <depend>tf2</depend>                 <!-- quaternions -->

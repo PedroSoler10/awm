@@ -10,6 +10,7 @@
 #include <nav_msgs/OccupancyGrid.h>
 
 #include <cstdint>
+#include <vector>
 
 #include "awm/grid.h"
 #include "awm/measure_map.h"
@@ -103,6 +104,21 @@ TEST(MeasureMap, MarginDoesNotCoverMeasuredCells) {
   EXPECT_EQ(*awm::cell(measure_map, 7, 5), awm::kMeasured);
   EXPECT_EQ(*awm::cell(measure_map, 8, 5), awm::kBlocked);
   EXPECT_EQ(*awm::cell(measure_map, 9, 5), awm::kBlocked);
+}
+
+TEST(MeasureMap, RemoveMeasuredCellsKeepsOrderOfTheOthers) {
+  nav_msgs::OccupancyGrid measure_map = makeMap(4, 4);  // All 0, i.e. measured.
+  *awm::cell(&measure_map, 1, 1) = awm::kToMeasure;
+  *awm::cell(&measure_map, 3, 0) = awm::kBlocked;
+  *awm::cell(&measure_map, 2, 2) = awm::kToMeasure;
+  // (0, 0) is measured and goes; (9, 9) is outside the map and stays.
+  std::vector<awm::GridCell> cells = {{2, 2}, {0, 0}, {3, 0}, {9, 9}, {1, 1}};
+  awm::removeMeasuredCells(measure_map, &cells);
+  ASSERT_EQ(cells.size(), 4u);
+  EXPECT_EQ(cells[0].x, 2);
+  EXPECT_EQ(cells[1].x, 3);
+  EXPECT_EQ(cells[2].x, 9);
+  EXPECT_EQ(cells[3].x, 1);
 }
 
 }  // namespace

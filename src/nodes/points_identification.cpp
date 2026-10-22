@@ -13,7 +13,8 @@
  *             /safe_map     (nav_msgs/OccupancyGrid)  from map_processing, to keep goals off walls
  *             /measure_map  (nav_msgs/OccupancyGrid)  from brain, what has been measured
  * Service:    /goal_points  (awm/GoalPoints)
- *   mode 1 EXPLORATION  frontier goals: one per cluster of free cells at the edge of the known map
+ *   mode 1 EXPLORATION  frontier goals: one per cluster of free cells at the edge of the known map,
+ *                       except goals /measure_map marks as measured (the robot has been there)
  *   mode 2 MEASUREMENT  the nearest cells of /measure_map still to be measured
  *   mode 3 FUSION       MEASUREMENT first; if it finds nothing, EXPLORATION
  *   num: most goals returned, 0 = all. Points are in the "map" frame, closest to the robot first.
@@ -99,7 +100,9 @@ class PointsIdentification {
   }
 
   // Frontier goals. Returns false if /map and /safe_map are not both there and of the same size
-  // (map_processing may be a moment behind a map that just grew).
+  // (map_processing may be a moment behind a map that just grew). A frontier the robot has
+  // already visited can stay a frontier (space the LiDAR cannot see from there), so goals that
+  // /measure_map marks as measured are dropped; otherwise FUSION would offer the same one forever.
   bool explorationPoints(const geometry_msgs::PoseStamped& robot, int num,
                          std::vector<geometry_msgs::Point>* points) const {
     if (!map_ || !safe_map_) return false;
@@ -114,6 +117,9 @@ class PointsIdentification {
     awm::worldToGrid(*map_, robot.pose, &robot_x, &robot_y);
     std::vector<awm::GridCell> goals;
     awm::frontierGoals(clusters, robot_x, robot_y, &goals);
+    if (measure_map_ && measure_map_->info.width == map_->info.width &&
+        measure_map_->info.height == map_->info.height)
+      awm::removeMeasuredCells(*measure_map_, &goals);
     appendWorldPoints(*map_, goals, num, points);
     return true;
   }

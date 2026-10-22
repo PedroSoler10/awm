@@ -148,6 +148,14 @@ TEST(MapDump, DrawsMarksOverCells) {
   std::remove(path.c_str());
 }
 
+TEST(MapDump, FailsWhenDataDoesNotMatchSize) {
+  nav_msgs::OccupancyGrid map;
+  map.info.width = 3;
+  map.info.height = 2;
+  map.data = {0, 50, 100};
+  EXPECT_FALSE(awm::writeMapText(map, ::testing::TempDir() + "awm_map_dump_short_test.txt"));
+}
+
 TEST(MapDump, FailsOnBadPath) {
   EXPECT_FALSE(awm::writeMapText(nav_msgs::OccupancyGrid(), "/nonexistent_dir/x.txt"));
 }

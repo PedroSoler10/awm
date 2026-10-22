@@ -2,17 +2,34 @@
 
 ROS Noetic nodes, interfaces and launch files for the AWM project, running a TurtleBot3 in simulation or on the real robot.
 
-## Contents
+## Package layout
 
-- `src/nodes/`: C++ nodes, one executable per file (`brain`, `map_processing`, `points_identification`).
-- `include/awm/`, `src/lib/`: the `awm_core` library shared by the nodes (grid helpers, robot pose from tf, measure map, safe map, frontier detection, text map dump, and the two goal sources of `brain`).
-- `test/`: unit tests of `awm_core` (gtest, no roscore needed; run with `scripts/container_build.sh --test`).
-- `srv/`: custom interface (`GoalPoints.srv`, served by `points_identification` as `/goal_points`, see [Goal points service](#goal-points-service)).
-- `launch/awm.launch`: single launch file for the simulation or the real robot, with a switch for each module and the `mode` of `brain` (see [Launch options](#launch-options) and [Modes](#modes)).
-- `Dockerfile`: builds an image with every dependency already installed.
-- `scripts/debug_brain.sh`, `.vscode/`: debug `brain` with gdb (see [Debugging with gdb](#debugging-with-gdb)).
-- `scripts/container_build.sh`, `scripts/smoke_test.sh`: build and run a headless simulation test from the host, inside the dev container (see [Build and smoke test from the host](#build-and-smoke-test-from-the-host)).
-- `docs/CONFIGURATION.md`: coding style, formatting and lint tools, editor setup, and the development container.
+```
+awm/
+├── include/awm/          awm_core headers (namespace awm)
+│   ├── grid.h            world <-> grid cell, cell(), markDisk, inflate, ring search
+│   ├── robot_pose.h      robot pose in "map" from tf (base_scan origin)
+│   ├── measure_map.h     measure map: update, measured-cell filter, measurement file
+│   ├── safe_map.h        safe map: discretise + caution band
+│   ├── frontiers.h       frontier cells, clustering, one goal per cluster
+│   ├── map_dump.h        text dump of a grid
+│   ├── goal_source.h     GoalSource interface of brain (Strategy pattern)
+│   ├── nearest_unmeasured_goal_source.h   standalone mode: in-process search
+│   └── service_goal_source.h              modular mode: asks /goal_points
+├── src/lib/              awm_core sources (one .cpp per header)
+├── src/nodes/            one executable per file: brain, map_processing, points_identification
+├── test/                 gtest unit tests of awm_core (no roscore needed)
+├── srv/GoalPoints.srv    the /goal_points service
+├── launch/awm.launch     the only launch file (simulation or real robot, mode switch)
+├── scripts/              install_deps, check_format, container_build, smoke_test, debug_brain
+├── docs/CONFIGURATION.md coding style, tools, editor and dev container
+├── Dockerfile, .devcontainer/, .vscode/
+├── CMakeLists.txt, package.xml
+```
+
+- The nodes are thin: they read parameters, subscribe, publish and call the library. All the map logic is in `awm_core`, so it is unit tested without ROS running (see [Unit tests](#unit-tests)).
+- How `brain` chooses goals is described in [Modes](#modes); every node, topic, service and parameter is in [Nodes, topics and parameters](#nodes-topics-and-parameters).
+- `scripts/container_build.sh` and `scripts/smoke_test.sh` build and run a headless simulation test from the host, inside the dev container (see [Build and smoke test from the host](#build-and-smoke-test-from-the-host)); `scripts/debug_brain.sh` and `.vscode/` debug `brain` with gdb (see [Debugging with gdb](#debugging-with-gdb)).
 
 ## Option A: Native install (Ubuntu 20.04 + ROS Noetic)
 
@@ -299,18 +316,7 @@ roslaunch awm awm.launch brain:=false
 rosrun awm brain
 ```
 
-`brain` reads these private parameters (set them with `_name:=value` after `rosrun awm brain`). Where two defaults are given, the first is for `~goal_source` `internal`, the second for `service`:
-
-| Parameter | Default | Meaning |
-|---|---|---|
-| `~goal_source` | `internal` | `internal`: search the goal in `brain`; `service`: ask `/goal_points` (see [Modes](#modes)). Other values stop the node at start |
-| `~goal_mode` | `3` | `service` only: mode sent to `/goal_points` (1 `EXPLORATION`, 2 `MEASUREMENT`, 3 `FUSION`). Other values stop the node at start |
-| `~search_limit_cells` | `200` | `internal` only: farthest goal searched from the robot, in cells |
-| `~measure_duration_s` | `3.0` | Time standing still per measurement |
-| `~measure_radius_m` | `0.5` | Cells this close to the robot count as measured |
-| `~inflate_radius_cells` | `6` / `0` | Safety margin around obstacles, in cells (`0` with the safe map: its caution band is the margin) |
-| `~occupied_threshold` | `90` / `49` | Occupancy above this is an obstacle (`49` blocks the caution cells, value 50, of the safe map) |
-| `~output_dir` | `.` | Folder for the measurement files (`.` is the working directory, `~/.ros` under roslaunch) |
+The private parameters of each node are listed in [Nodes, topics and parameters](#nodes-topics-and-parameters); set them with `_name:=value` after `rosrun awm <node>`.
 
 ### Modes
 
@@ -326,18 +332,6 @@ roslaunch awm awm.launch mode:=modular goal_mode:=1
 ```
 
 `brain:=false` still works in both modes: in `modular` it keeps `map_processing` and `points_identification`, so `rosrun awm brain _goal_source:=service` can be started by hand.
-
-Topics and services of the `awm` nodes:
-
-| Name | Type | Published / served by | Used by |
-|---|---|---|---|
-| `/map` | `nav_msgs/OccupancyGrid` | SLAM | `brain` (`standalone`), `map_processing`, `points_identification` |
-| `/safe_map` | `nav_msgs/OccupancyGrid`, latched | `map_processing` (`modular`) | `brain` (`modular`), `points_identification` |
-| `/measure_map` | `nav_msgs/OccupancyGrid`, latched | `brain` | `points_identification` (`MEASUREMENT`, `FUSION`) |
-| `/scan_pose` | `geometry_msgs/PoseStamped` | `brain` | (for RViz and tools) |
-| `/move_base_simple/goal` | `geometry_msgs/PoseStamped` | `brain` | `move_base` |
-| `/move_base/status` | `actionlib_msgs/GoalStatusArray` | `move_base` | `brain` |
-| `/goal_points` (service) | `awm/GoalPoints` | `points_identification` (`modular`) | `brain` (`modular`) |
 
 ### Goal points service
 
@@ -355,10 +349,57 @@ rosrun awm points_identification
 rosservice call /goal_points "{mode: 1, num: 5}"
 ```
 
-- `mode` 1 `EXPLORATION`: one goal per cluster of free cells next to unknown space (frontiers), read from `/map` and `/safe_map`.
+- `mode` 1 `EXPLORATION`: one goal per cluster of free cells next to unknown space (frontiers), read from `/map` and `/safe_map`. Goals that `/measure_map` marks as measured are left out: the robot has been there, and a frontier it cannot see past would otherwise come back on every call.
 - `mode` 2 `MEASUREMENT`: the nearest cells of `/measure_map` (published by `brain`) that are still to be measured.
 - `mode` 3 `FUSION`: `MEASUREMENT`, and `EXPLORATION` if that finds nothing.
 - `num` is the most points returned (`0` = all). `points` are in the `map` frame, closest to the robot first. An unknown `mode` makes the call fail; missing maps or robot pose give an empty list.
+
+## Nodes, topics and parameters
+
+| Node | Started by `awm.launch` | Does |
+|---|---|---|
+| `brain` | `brain:=true` (default), both modes | State machine: choose a goal, send it to `move_base`, wait, measure, repeat. Keeps the measure map. |
+| `map_processing` | `mode:=modular` | `/map` → `/safe_map`: four values (-1 unknown, 0 free, 50 caution, 100 occupied) with a caution band around obstacles. |
+| `points_identification` | `mode:=modular` | Serves `/goal_points`: frontier and/or unmeasured goals (see [Goal points service](#goal-points-service)). |
+
+Topics and services of the `awm` nodes:
+
+| Name | Type | Published / served by | Used by |
+|---|---|---|---|
+| `/map` | `nav_msgs/OccupancyGrid` | SLAM | `brain` (`standalone`), `map_processing`, `points_identification` |
+| `/safe_map` | `nav_msgs/OccupancyGrid`, latched | `map_processing` (`modular`) | `brain` (`modular`), `points_identification` |
+| `/measure_map` | `nav_msgs/OccupancyGrid`, latched | `brain` | `points_identification` (`MEASUREMENT`, `FUSION`) |
+| `/scan_pose` | `geometry_msgs/PoseStamped` | `brain` | (for RViz and tools) |
+| `/move_base_simple/goal` | `geometry_msgs/PoseStamped` | `brain` | `move_base` |
+| `/move_base/status` | `actionlib_msgs/GoalStatusArray` | `move_base` | `brain` |
+| `/goal_points` (service) | `awm/GoalPoints` | `points_identification` (`modular`) | `brain` (`modular`) |
+
+Private parameters. `awm.launch` sets only `goal_source` and `goal_mode` of `brain`; everything else keeps the defaults below.
+
+**`brain`.** Where two defaults are given, the first is for `~goal_source` `internal`, the second for `service`:
+
+| Parameter | Default | Meaning |
+|---|---|---|
+| `~goal_source` | `internal` | `internal`: search the goal in `brain`; `service`: ask `/goal_points` (see [Modes](#modes)). Other values stop the node at start |
+| `~goal_mode` | `3` | `service` only: mode sent to `/goal_points` (1 `EXPLORATION`, 2 `MEASUREMENT`, 3 `FUSION`). Other values stop the node at start |
+| `~search_limit_cells` | `200` | `internal` only: farthest goal searched from the robot, in cells |
+| `~measure_duration_s` | `3.0` | Time standing still per measurement |
+| `~measure_radius_m` | `0.5` | Cells this close to the robot count as measured |
+| `~inflate_radius_cells` | `6` / `0` | Safety margin around obstacles, in cells (`0` with the safe map: its caution band is the margin) |
+| `~occupied_threshold` | `90` / `49` | Occupancy above this is an obstacle (`49` blocks the caution cells, value 50, of the safe map) |
+| `~output_dir` | `.` | Folder for the measurement files (`.` is the working directory, `~/.ros` under roslaunch) |
+
+**`map_processing`**
+
+| Parameter | Default | Meaning |
+|---|---|---|
+| `~occupied_threshold` | `90` | Occupancy from this value up is occupied (100) |
+| `~caution_threshold` | `50` | Occupancy from this value up (below occupied) is caution (50) |
+| `~inflate_radius_cells` | `6` | Free cells in the square of this radius around an obstacle become caution |
+| `~dump_maps` | `false` | Write `map.txt` and `safe_map.txt` on every map |
+| `~dump_dir` | `.` | Folder for those files |
+
+**`points_identification`**
 
 | Parameter | Default | Meaning |
 |---|---|---|
@@ -366,6 +407,22 @@ rosservice call /goal_points "{mode: 1, num: 5}"
 | `~search_limit_cells` | `200` | Farthest unmeasured cell searched from the robot, in cells |
 | `~dump_maps` | `false` | Write `map_with_goals.txt` on every request, goals marked `8` |
 | `~dump_dir` | `.` | Folder for that file |
+
+## Tests
+
+### Unit tests
+
+The tests in `test/` (gtest) check the pure functions of `awm_core` on hand-made `nav_msgs/OccupancyGrid`s: grid conversions and ring search (`test_grid`), measure map (`test_measure_map`), safe map and text dump (`test_safe_map`), frontiers (`test_frontiers`), and the in-process goal source (`test_goal_source`). They need no roscore. `ServiceGoalSource` and the nodes need ROS running, so they are covered by the smoke test below instead.
+
+From the workspace folder (natively, or inside the container):
+
+```bash
+catkin_make run_tests_awm && catkin_test_results build/test_results/awm
+```
+
+`catkin_test_results` prints a summary such as `Summary: 94 tests, 0 errors, 0 failures, 0 skipped` and exits with an error if any test failed (each gtest case is counted twice: once by gtest, once by the rosunit wrapper). One test binary can be run directly, for example `devel/lib/awm/test_grid --gtest_filter='Grid.FindNearest*'`.
+
+To add a test, write `test/test_<name>.cpp` and add `test_<name>` to the `foreach` list in section 6 of `CMakeLists.txt`.
 
 ### Build and smoke test from the host
 

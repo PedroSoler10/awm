@@ -27,17 +27,12 @@ find_package(catkin REQUIRED COMPONENTS
   actionlib_msgs       # actionlib_msgs/GoalStatusArray.h (move_base goal status)
   geometry_msgs        # geometry_msgs/PoseStamped.h
   message_generation   # turns the files in srv/ into C++ headers
-  move_base_msgs       # move_base_msgs/MoveBaseActionResult.h
   nav_msgs             # nav_msgs/OccupancyGrid.h (the map)
   roscpp               # ros/ros.h: ros::init, ros::Publisher, ros::spinOnce, ...
   tf2                  # tf2/LinearMath/Quaternion.h
   tf2_geometry_msgs    # tf2::toMsg, converts quaternions to messages
   tf2_ros              # tf2_ros::Buffer and tf2_ros::TransformListener
 )
-
-# Boost is a C++ library, not a ROS package, so catkin does not find it.
-# We use its date_time part to build the time stamps in the measure file names.
-find_package(Boost REQUIRED COMPONENTS date_time)
 
 # ---------------------------------------------------------------------------
 # 2. Interfaces owned by this package (messages and services)
@@ -67,7 +62,6 @@ catkin_package(
     actionlib_msgs
     geometry_msgs
     message_runtime    # needed at run time by the generated messages
-    move_base_msgs
     nav_msgs
     roscpp
     tf2
@@ -79,7 +73,6 @@ catkin_package(
 include_directories(
   include
   ${catkin_INCLUDE_DIRS}
-  ${Boost_INCLUDE_DIRS}
 )
 
 # ---------------------------------------------------------------------------
@@ -120,11 +113,10 @@ foreach(target ${AWM_EXECUTABLES})
     ${catkin_EXPORTED_TARGETS}
   )
 
-  # Link the shared library, the ROS libraries and the Boost library.
+  # Link the shared library and the ROS libraries.
   target_link_libraries(${target}
     awm_core
     ${catkin_LIBRARIES}
-    ${Boost_LIBRARIES}
   )
 endforeach()
 

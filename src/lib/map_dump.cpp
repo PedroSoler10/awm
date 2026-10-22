@@ -20,6 +20,9 @@ bool writeMapText(const nav_msgs::OccupancyGrid& grid, const std::string& path) 
 
 bool writeMapText(const nav_msgs::OccupancyGrid& grid, const std::string& path,
                   const std::vector<GridCell>& marks) {
+  // data must hold every cell, or the loop below would read past its end.
+  if (grid.data.size() != static_cast<std::size_t>(grid.info.width) * grid.info.height)
+    return false;
   std::ofstream file(path);
   if (!file) return false;
   std::unordered_set<std::size_t> marked;

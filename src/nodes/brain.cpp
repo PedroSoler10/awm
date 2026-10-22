@@ -127,7 +127,8 @@ class Brain {
   enum class State { WAITING, MEASURING, REACHING_GOAL, DONE };
 
   // CALLBACKS //
-  void mapCallback(const nav_msgs::OccupancyGrid::ConstPtr& msg) { map_ = *msg; }
+  // The map is only read, so we keep the shared message instead of copying it.
+  void mapCallback(const nav_msgs::OccupancyGrid::ConstPtr& msg) { map_ = msg; }
 
   // move_base publishes the state of all recent goals. We want the state of OUR latest goal.
   void statusCallback(const actionlib_msgs::GoalStatusArray::ConstPtr& st) {
@@ -147,7 +148,7 @@ class Brain {
   // One step of the state machine, called at 10 Hz from run().
   void control() {
     // Every state needs the robot pose and a map; until both exist SLAM or tf are not up yet.
-    if (!readScanPose() || map_.data.empty()) {
+    if (!readScanPose() || !map_ || map_->data.empty()) {
       ROS_INFO_THROTTLE(1.0, "WAITING FOR %s AND SCAN POSE", map_name_);
       return;
     }
@@ -210,7 +211,7 @@ class Brain {
 
   // Rebuilds measure_map_ from the latest map and the current robot position, then publishes.
   void updateMeasureMap() {
-    awm::updateMeasureMap(map_, scan_pose_.pose.position.x, scan_pose_.pose.position.y,
+    awm::updateMeasureMap(*map_, scan_pose_.pose.position.x, scan_pose_.pose.position.y,
                           measure_params_, &measure_map_);
     measure_map_.header.stamp = ros::Time::now();
     pub_measure_map_.publish(measure_map_);
@@ -259,8 +260,8 @@ class Brain {
   geometry_msgs::PoseStamped scan_pose_;  // Robot pose in "map".
   ros::Publisher pub_scan_pose_;
 
-  nav_msgs::OccupancyGrid map_;   // Latest /map (internal) or /safe_map (service).
-  const char* map_name_ = "MAP";  // For the log.
+  nav_msgs::OccupancyGrid::ConstPtr map_;  // Latest /map (internal) or /safe_map (service).
+  const char* map_name_ = "MAP";           // For the log.
   nav_msgs::OccupancyGrid measure_map_;
   ros::Publisher pub_measure_map_;
   ros::Subscriber sub_map_;

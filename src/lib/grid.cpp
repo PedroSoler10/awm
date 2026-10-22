@@ -29,18 +29,28 @@ void gridToWorld(const nav_msgs::OccupancyGrid& grid, int x, int y, double* worl
   *world_y = y * grid.info.resolution + grid.info.origin.position.y;
 }
 
+namespace {
+
+// Index of cell (x, y) in grid.data, or false if the cell is outside the grid. data is checked
+// too, so a message whose data is shorter than width * height is never read past its end.
+bool cellIndex(const nav_msgs::OccupancyGrid& grid, int x, int y, std::size_t* index) {
+  if (x < 0 || y < 0 || x >= static_cast<int>(grid.info.width) ||
+      y >= static_cast<int>(grid.info.height))
+    return false;
+  *index = static_cast<std::size_t>(y) * grid.info.width + x;
+  return *index < grid.data.size();
+}
+
+}  // namespace
+
 std::int8_t* cell(nav_msgs::OccupancyGrid* grid, int x, int y) {
-  if (x < 0 || y < 0 || x >= static_cast<int>(grid->info.width) ||
-      y >= static_cast<int>(grid->info.height))
-    return nullptr;
-  return &grid->data[static_cast<std::size_t>(y) * grid->info.width + x];
+  std::size_t index;
+  return cellIndex(*grid, x, y, &index) ? &grid->data[index] : nullptr;
 }
 
 const std::int8_t* cell(const nav_msgs::OccupancyGrid& grid, int x, int y) {
-  if (x < 0 || y < 0 || x >= static_cast<int>(grid.info.width) ||
-      y >= static_cast<int>(grid.info.height))
-    return nullptr;
-  return &grid.data[static_cast<std::size_t>(y) * grid.info.width + x];
+  std::size_t index;
+  return cellIndex(grid, x, y, &index) ? &grid.data[index] : nullptr;
 }
 
 void markDisk(nav_msgs::OccupancyGrid* grid, int cx, int cy, double radius_m, std::int8_t value,

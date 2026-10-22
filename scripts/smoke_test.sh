@@ -82,7 +82,7 @@ done
 echo "== Nodes"
 in_container 'rosnode list' || true
 echo "== Brain events"
-in_container "cat $LOGS 2>/dev/null | grep -E 'NEW GOAL|MEASURE DONE|GOAL (NOT )?REACHED|EVERYTHING' \
+in_container "cat $LOGS 2>/dev/null | grep -E 'NEW GOAL|MEASURE DONE|GOAL (NOT )?REACHED|EVERYTHING|NO MORE GOAL POINTS' \
   | sed -E 's/\x1b\[[0-9;]*m//g'" || true
 echo "== Errors (counted)"
 in_container "cat $LOGS 2>/dev/null | grep -E 'ERROR|FATAL|terminate|process has died' \

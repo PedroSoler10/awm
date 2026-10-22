@@ -8,11 +8,10 @@
 
 #include "awm/measure_map.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <ctime>
 #include <fstream>
-
-#include "awm/grid.h"
 
 namespace awm {
 
@@ -45,6 +44,14 @@ void updateMeasureMap(const nav_msgs::OccupancyGrid& map, double robot_x, double
 
   // 3) Safety margin: cells next to an obstacle cannot be goals unless measured.
   inflate(map, params.occupied_threshold, params.inflate_radius_cells, measure_map, kMeasured);
+}
+
+void removeMeasuredCells(const nav_msgs::OccupancyGrid& measure_map, std::vector<GridCell>* cells) {
+  const auto measured = [&measure_map](const GridCell& c) {
+    const std::int8_t* value = cell(measure_map, c.x, c.y);
+    return value != nullptr && *value == kMeasured;
+  };
+  cells->erase(std::remove_if(cells->begin(), cells->end(), measured), cells->end());
 }
 
 bool writeMeasurementFile(const std::string& dir, const geometry_msgs::Pose& pose,

@@ -24,7 +24,8 @@
 
 namespace awm {
 
-// Writes the grid to path, replacing the file. Returns false if the file cannot be opened.
+// Writes the grid to path, replacing the file. Returns false if data does not hold width * height
+// cells or the file cannot be opened.
 bool writeMapText(const nav_msgs::OccupancyGrid& grid, const std::string& path);
 
 // The same, drawing an 8 over each cell in marks (for example the goals just computed). Marks
