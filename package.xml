@@ -53,7 +53,5 @@
   <exec_depend>turtlebot3_teleop</exec_depend>
   <exec_depend>gmapping</exec_depend>             <!-- SLAM -->
   <exec_depend>move_base</exec_depend>            <!-- navigation -->
-  <exec_depend>map_server</exec_depend>
-  <exec_depend>amcl</exec_depend>                 <!-- localization -->
   <exec_depend>dwa_local_planner</exec_depend>    <!-- local planner -->
 </package>

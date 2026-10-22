@@ -31,7 +31,7 @@
   <!-- Modules -->
   <arg name="slam" default="true" doc="run SLAM"/>
   <arg name="slam_method" default="gmapping" doc="SLAM method [gmapping, cartographer, hector, karto, frontier_exploration]"/>
-  <arg name="nav" default="true" doc="run AMCL and move_base"/>
+  <arg name="nav" default="true" doc="run move_base (SLAM provides the localization)"/>
   <arg name="move_forward_only" default="false" doc="navigation never reverses the robot"/>
   <arg name="rviz" default="true" doc="open RViz"/>
   <arg name="rviz_config" default="$(find turtlebot3_navigation)/rviz/turtlebot3_navigation.rviz" doc="RViz configuration file"/>
@@ -71,9 +71,9 @@
     </include>
   </group>
 
-  <!-- Navigation -->
+  <!-- Navigation. No AMCL: SLAM already publishes map -> odom, and AMCL would wait for a
+       static_map service that gmapping does not serve. -->
   <group if="$(arg nav)">
-    <include file="$(find turtlebot3_navigation)/launch/amcl.launch"/>
     <include file="$(find turtlebot3_navigation)/launch/move_base.launch">
       <arg name="model" value="$(arg model)"/>
       <arg name="move_forward_only" value="$(arg move_forward_only)"/>
