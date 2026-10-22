@@ -37,11 +37,11 @@
 
 #include "awm/GoalPoints.h"
 #include "awm/frontiers.h"
+#include "awm/goal_points_client.h"
 #include "awm/grid.h"
 #include "awm/map_dump.h"
 #include "awm/measure_map.h"
 #include "awm/robot_pose.h"
-#include "awm/service_goal_source.h"
 
 class PointsIdentification {
  public:

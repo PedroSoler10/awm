@@ -35,6 +35,19 @@ int countValue(const nav_msgs::OccupancyGrid& grid, std::int8_t value) {
   return n;
 }
 
+// The first cell findNearestCells finds (n = 1), with its angle. Outputs untouched if none.
+bool findNearest(const nav_msgs::OccupancyGrid& grid, int x0, int y0, std::int8_t value,
+                 int max_radius_cells, int* x, int* y, int* angle_deg) {
+  std::vector<awm::GridCell> cells;
+  std::vector<int> angles;
+  if (!awm::findNearestCells(grid, x0, y0, value, max_radius_cells, 1, &cells, &angles))
+    return false;
+  *x = cells[0].x;
+  *y = cells[0].y;
+  *angle_deg = angles[0];
+  return true;
+}
+
 TEST(Grid, WorldToGridRoundTrip) {
   const nav_msgs::OccupancyGrid grid = makeGrid(40, 30, 0);
   for (int y = 0; y < 30; y += 7) {
@@ -147,7 +160,7 @@ TEST(Grid, FindNearestCellReturnsClosest) {
   int x;
   int y;
   int angle;
-  ASSERT_TRUE(awm::findNearestCell(grid, 10, 10, -1, 200, &x, &y, &angle));
+  ASSERT_TRUE(findNearest(grid, 10, 10, -1, 200, &x, &y, &angle));
   EXPECT_EQ(x, 10);
   EXPECT_EQ(y, 15);
   // Rounding to cells makes a few angles near 90 land on the same cell; the first one wins.
@@ -162,7 +175,7 @@ TEST(Grid, FindNearestCellUsesSweepOrder) {
   int x;
   int y;
   int angle;
-  ASSERT_TRUE(awm::findNearestCell(grid, 10, 10, -1, 200, &x, &y, &angle));
+  ASSERT_TRUE(findNearest(grid, 10, 10, -1, 200, &x, &y, &angle));
   EXPECT_EQ(x, 7);
   EXPECT_EQ(y, 10);
   EXPECT_NEAR(angle, 180, 10);
@@ -173,7 +186,7 @@ TEST(Grid, FindNearestCellAtDistanceZero) {
   int x;
   int y;
   int angle;
-  ASSERT_TRUE(awm::findNearestCell(grid, 2, 3, -1, 200, &x, &y, &angle));
+  ASSERT_TRUE(findNearest(grid, 2, 3, -1, 200, &x, &y, &angle));
   EXPECT_EQ(x, 2);
   EXPECT_EQ(y, 3);
   EXPECT_EQ(angle, 0);
@@ -184,13 +197,13 @@ TEST(Grid, FindNearestCellFalseWhenNone) {
   int x = -7;
   int y = -7;
   int angle = -7;
-  EXPECT_FALSE(awm::findNearestCell(grid, 10, 10, -1, 200, &x, &y, &angle));
+  EXPECT_FALSE(findNearest(grid, 10, 10, -1, 200, &x, &y, &angle));
   EXPECT_EQ(x, -7);  // Outputs untouched.
 
   // A match beyond the search limit is not found either.
   *awm::cell(&grid, 25, 10) = -1;
-  EXPECT_FALSE(awm::findNearestCell(grid, 10, 10, -1, 14, &x, &y, &angle));
-  EXPECT_TRUE(awm::findNearestCell(grid, 10, 10, -1, 15, &x, &y, &angle));
+  EXPECT_FALSE(findNearest(grid, 10, 10, -1, 14, &x, &y, &angle));
+  EXPECT_TRUE(findNearest(grid, 10, 10, -1, 15, &x, &y, &angle));
 }
 
 TEST(Grid, FindNearestCellsReturnsClosestFirstWithoutDuplicates) {

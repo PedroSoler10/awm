@@ -87,18 +87,6 @@ void inflate(const nav_msgs::OccupancyGrid& source, int threshold, int radius_ce
   }
 }
 
-bool findNearestCell(const nav_msgs::OccupancyGrid& grid, int x0, int y0, std::int8_t wanted_value,
-                     int max_radius_cells, int* x, int* y, int* angle_deg) {
-  std::vector<GridCell> found;
-  std::vector<int> angles;
-  if (!findNearestCells(grid, x0, y0, wanted_value, max_radius_cells, 1, &found, &angles))
-    return false;
-  *x = found[0].x;
-  *y = found[0].y;
-  *angle_deg = angles[0];
-  return true;
-}
-
 bool findNearestCells(const nav_msgs::OccupancyGrid& grid, int x0, int y0, std::int8_t wanted_value,
                       int max_radius_cells, int n, std::vector<GridCell>* out,
                       std::vector<int>* angles_deg) {

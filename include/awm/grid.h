@@ -55,17 +55,12 @@ void markDisk(nav_msgs::OccupancyGrid* grid, int cx, int cy, double radius_m, st
 void inflate(const nav_msgs::OccupancyGrid& source, int threshold, int radius_cells,
              nav_msgs::OccupancyGrid* target, std::int8_t keep_value);
 
-// Looks for a cell equal to wanted_value on circles of growing radius d = 0..max_radius_cells
-// around (x0, y0), sweeping the angle from 0 to 359 degrees. The first match is the closest cell:
-// writes it to (x, y), the angle it was found at to angle_deg, and returns true. Returns false if
-// there is no such cell within max_radius_cells.
-bool findNearestCell(const nav_msgs::OccupancyGrid& grid, int x0, int y0, std::int8_t wanted_value,
-                     int max_radius_cells, int* x, int* y, int* angle_deg);
-
-// The same ring search, collecting up to n different cells equal to wanted_value, closest first
-// (n = 0 collects them all). *out is cleared first; angles_deg, if not null, receives the angle
-// each cell was found at. Returns false if no cell was found. The sweep samples 360 angles per
-// circle, so on circles larger than about 57 cells it can skip cells between two samples.
+// Looks for cells equal to wanted_value on circles of growing radius d = 0..max_radius_cells
+// around (x0, y0), sweeping the angle from 0 to 359 degrees, and collects up to n different ones,
+// closest first (n = 0 collects them all). *out is cleared first; angles_deg, if not null, receives
+// the angle each cell was found at. Returns false if no cell was found. The sweep samples 360
+// angles per circle, so on circles larger than about 57 cells it can skip cells between two
+// samples.
 bool findNearestCells(const nav_msgs::OccupancyGrid& grid, int x0, int y0, std::int8_t wanted_value,
                       int max_radius_cells, int n, std::vector<GridCell>* out,
                       std::vector<int>* angles_deg = nullptr);

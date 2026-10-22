@@ -6,7 +6,7 @@
  * See the LICENSE file at the root of this repository for the full text.
  */
 
-#include "awm/service_goal_source.h"
+#include "awm/goal_points_client.h"
 
 #include <ros/ros.h>
 #include <tf2/LinearMath/Quaternion.h>
@@ -15,7 +15,6 @@
 #include <cmath>
 
 #include "awm/GoalPoints.h"
-#include "awm/grid.h"
 
 namespace awm {
 
@@ -25,21 +24,22 @@ bool isValidGoalMode(int goal_mode) {
          goal_mode == Request::FUSION;
 }
 
-bool ServiceGoalSource::next(const Context& ctx, geometry_msgs::PoseStamped* goal) {
+bool requestGoal(std::uint8_t goal_mode, const geometry_msgs::PoseStamped& robot_pose,
+                 geometry_msgs::PoseStamped* goal, const std::string& service) {
   GoalPoints srv;
-  srv.request.mode = goal_mode_;
+  srv.request.mode = goal_mode;
   srv.request.num = 1;
   // An unreachable service is not "nothing left": wait for it, so the robot does not stop for
   // good when points_identification starts late or restarts.
   while (true) {
     if (!ros::ok()) return false;
-    if (!ros::service::waitForService(service_, ros::Duration(1.0))) {
+    if (!ros::service::waitForService(service, ros::Duration(1.0))) {
       ROS_WARN_THROTTLE(5.0, "WAITING FOR SERVICE %s (IS points_identification UP?)",
-                        service_.c_str());
+                        service.c_str());
       continue;
     }
-    if (ros::service::call(service_, srv)) break;
-    ROS_WARN_THROTTLE(5.0, "CALL TO %s FAILED", service_.c_str());
+    if (ros::service::call(service, srv)) break;
+    ROS_WARN_THROTTLE(5.0, "CALL TO %s FAILED", service.c_str());
     ros::WallDuration(1.0).sleep();
   }
   if (srv.response.points.empty()) {
@@ -49,19 +49,16 @@ bool ServiceGoalSource::next(const Context& ctx, geometry_msgs::PoseStamped* goa
 
   // Face the direction of travel.
   const geometry_msgs::Point& target = srv.response.points.front();
-  const geometry_msgs::Point& robot = ctx.robot_pose.pose.position;
+  const geometry_msgs::Point& robot = robot_pose.pose.position;
   const double heading = std::atan2(target.y - robot.y, target.x - robot.x);
-  *goal = ctx.robot_pose;
+  *goal = robot_pose;
   goal->pose.position.x = target.x;
   goal->pose.position.y = target.y;
   tf2::Quaternion orientation;
   orientation.setRPY(0, 0, heading);
   goal->pose.orientation = tf2::toMsg(orientation);
 
-  int x;
-  int y;
-  worldToGrid(ctx.measure_map, goal->pose, &x, &y);
-  ROS_INFO("NEW GOAL: cell x: %d y: %d, angle: %d", x, y,
+  ROS_INFO("NEW GOAL: x: %.2f y: %.2f, angle: %d", target.x, target.y,
            static_cast<int>(std::lround(heading * 180 / M_PI)));
   return true;
 }
