@@ -24,9 +24,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Every ROS package whose headers we #include must appear here AND in
 # package.xml. Missing it here means the compiler cannot find the header.
 find_package(catkin REQUIRED COMPONENTS
-  actionlib_msgs       # actionlib_msgs/GoalStatusArray.h (move_base goal status)
+  actionlib            # actionlib::SimpleActionClient (goals for move_base)
   geometry_msgs        # geometry_msgs/PoseStamped.h
   message_generation   # turns the files in srv/ into C++ headers
+  move_base_msgs       # move_base_msgs/MoveBaseAction.h
   nav_msgs             # nav_msgs/OccupancyGrid.h (the map)
   roscpp               # ros/ros.h: ros::init, ros::Publisher, ros::spinOnce, ...
   tf2                  # tf2/LinearMath/Quaternion.h
@@ -59,9 +60,10 @@ catkin_package(
   INCLUDE_DIRS include
   LIBRARIES awm_core
   CATKIN_DEPENDS
-    actionlib_msgs
+    actionlib
     geometry_msgs
     message_runtime    # needed at run time by the generated messages
+    move_base_msgs
     nav_msgs
     roscpp
     tf2

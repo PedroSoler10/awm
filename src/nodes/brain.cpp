@@ -10,20 +10,19 @@
  * brain: autonomous exploration node (ROS 1 Noetic, TurtleBot3 + SLAM + move_base).
  *
  * Repeatedly: choose a goal, send it to move_base, wait until move_base finishes, stand still for a
- * few seconds taking a "measurement", and start over. brain does NOT drive the motors: move_base
- * plans the path and drives.
+ * moment taking a "measurement", and start over. brain does NOT drive the motors: move_base plans
+ * the path and drives.
  *
  * How the goal is chosen is a GoalSource (awm/goal_source.h), picked by ~goal_source:
  *   internal  closest free cell not measured yet, searched here on a measure map built on /map.
  *   service   asked from /goal_points (points_identification, which needs map_processing); the
  *             measure map is built on /safe_map, whose caution band (value 50) is blocked.
  *
- * Subscribes: /map or /safe_map   (nav_msgs/OccupancyGrid)         SLAM map / safe map
- *             /move_base/status   (actionlib_msgs/GoalStatusArray) state of the goals
- * Publishes:  /move_base_simple/goal (geometry_msgs/PoseStamped)   next goal for move_base
- *             /scan_pose          (geometry_msgs/PoseStamped)      robot pose in the "map" frame
- *             /measure_map        (nav_msgs/OccupancyGrid, latched) what has been measured so far
- * Calls:      /goal_points        (awm/GoalPoints), service mode only
+ * Subscribes: /map or /safe_map  (nav_msgs/OccupancyGrid)          SLAM map / safe map
+ * Publishes:  /scan_pose         (geometry_msgs/PoseStamped)       robot pose in the "map" frame
+ *             /measure_map       (nav_msgs/OccupancyGrid, latched) what has been measured so far
+ * Action:     /move_base         (move_base_msgs/MoveBase)         client: sends the goals
+ * Calls:      /goal_points       (awm/GoalPoints), service mode only
  * Private params (defaults in brackets, internal / service when they differ):
  *   ~goal_source [internal] internal or service, ~goal_mode [3] (service only: 1 EXPLORATION,
  *   2 MEASUREMENT, 3 FUSION), ~search_limit_cells [200] (internal only), ~measure_duration_s [1.0],
@@ -38,8 +37,9 @@
  */
 
 // C system headers (.h): ROS core and ROS messages
-#include <actionlib_msgs/GoalStatusArray.h>
+#include <actionlib/client/simple_action_client.h>
 #include <geometry_msgs/PoseStamped.h>
+#include <move_base_msgs/MoveBaseAction.h>
 #include <nav_msgs/OccupancyGrid.h>
 #include <ros/ros.h>
 
@@ -105,9 +105,7 @@ class Brain {
 
     pub_scan_pose_ = n_.advertise<geometry_msgs::PoseStamped>("/scan_pose", 100);
     pub_measure_map_ = n_.advertise<nav_msgs::OccupancyGrid>("/measure_map", 100, true);
-    pub_goal_ = n_.advertise<geometry_msgs::PoseStamped>("/move_base_simple/goal", 1);
     sub_map_ = n_.subscribe(map_topic, map_queue, &Brain::mapCallback, this);
-    sub_status_ = n_.subscribe("/move_base/status", 10, &Brain::statusCallback, this);
     ROS_INFO("INITIALIZATION DONE");
   }
 
@@ -130,19 +128,6 @@ class Brain {
   // The map is only read, so we keep the shared message instead of copying it.
   void mapCallback(const nav_msgs::OccupancyGrid::ConstPtr& msg) { map_ = msg; }
 
-  // move_base publishes the state of all recent goals. We want the state of OUR latest goal.
-  void statusCallback(const actionlib_msgs::GoalStatusArray::ConstPtr& st) {
-    const actionlib_msgs::GoalStatus* latest = nullptr;
-    for (const actionlib_msgs::GoalStatus& s : st->status_list) {
-      // Goals older than the one we sent are history (e.g. the previous goal, still listed for a
-      // few seconds as SUCCEEDED). Ignoring them avoids a false "goal reached". This assumes
-      // move_base stamps the goal with the time it received it.
-      if (s.goal_id.stamp < goal_sent_time_) continue;
-      if (latest == nullptr || s.goal_id.stamp > latest->goal_id.stamp) latest = &s;
-    }
-    if (latest != nullptr) goal_status_ = latest->status;
-  }
-
   // CONTROL //
 
   // One step of the state machine, called at 10 Hz from run().
@@ -150,6 +135,11 @@ class Brain {
     // Every state needs the robot pose and a map; until both exist SLAM or tf are not up yet.
     if (!readScanPose() || !map_ || map_->data.empty()) {
       ROS_INFO_THROTTLE(1.0, "WAITING FOR %s AND SCAN POSE", map_name_);
+      return;
+    }
+    // A goal sent before move_base is up would be lost.
+    if (!move_base_.isServerConnected()) {
+      ROS_INFO_THROTTLE(1.0, "WAITING FOR move_base");
       return;
     }
 
@@ -161,15 +151,16 @@ class Brain {
       case State::MEASURING:
         if (!measure()) break;
         // The goal source logs why it has no goal left.
-        state_ = pubGoal() ? State::REACHING_GOAL : State::DONE;
+        state_ = sendGoal() ? State::REACHING_GOAL : State::DONE;
         break;
 
-      case State::REACHING_GOAL:
-        if (goalFinished(goal_status_)) {
-          ROS_INFO(
-              "GOAL %s (status %d)",
-              goal_status_ == actionlib_msgs::GoalStatus::SUCCEEDED ? "REACHED" : "NOT REACHED",
-              goal_status_);
+      case State::REACHING_GOAL: {
+        // Done means finished either way: succeeded, aborted, rejected, preempted, ...
+        const actionlib::SimpleClientGoalState goal_state = move_base_.getState();
+        if (goal_state.isDone()) {
+          const bool reached = goal_state == actionlib::SimpleClientGoalState::SUCCEEDED;
+          ROS_INFO("GOAL %s (%s)", reached ? "REACHED" : "NOT REACHED",
+                   goal_state.toString().c_str());
           // Mark the area around the goal as measured. If the goal could not be reached, this
           // stops the search from choosing the same cell again and again.
           int goal_x;
@@ -180,6 +171,7 @@ class Brain {
           startMeasuring();
         }
         break;
+      }
 
       case State::DONE:
         break;
@@ -217,15 +209,16 @@ class Brain {
     pub_measure_map_.publish(measure_map_);
   }
 
-  // Asks the goal source for the next goal and publishes it.
+  // Asks the goal source for the next goal and sends it to move_base.
   // Returns false if there is nothing left to do.
-  bool pubGoal() {
+  bool sendGoal() {
     if (!goal_source_->next({scan_pose_, measure_map_}, &goal_pose_)) return false;
 
     goal_pose_.header.stamp = ros::Time::now();
-    goal_status_ = actionlib_msgs::GoalStatus::PENDING;  // Forget the previous goal's result.
-    goal_sent_time_ = ros::Time::now();
-    pub_goal_.publish(goal_pose_);
+    move_base_msgs::MoveBaseGoal goal;
+    goal.target_pose = goal_pose_;
+    // The client tracks this goal by its id, so getState() never reports an older goal.
+    move_base_.sendGoal(goal);
     return true;
   }
 
@@ -237,15 +230,6 @@ class Brain {
     if (!robot_pose_.lookup(&scan_pose_)) return false;
     pub_scan_pose_.publish(scan_pose_);
     return true;
-  }
-
-  // True once move_base is done with the goal, successfully or not. Still running: PENDING,
-  // ACTIVE, PREEMPTING, RECALLING.
-  static bool goalFinished(int status) {
-    using actionlib_msgs::GoalStatus;
-    return status == GoalStatus::SUCCEEDED || status == GoalStatus::ABORTED ||
-           status == GoalStatus::REJECTED || status == GoalStatus::PREEMPTED ||
-           status == GoalStatus::RECALLED || status == GoalStatus::LOST;
   }
 
   // DATA //
@@ -267,10 +251,8 @@ class Brain {
   ros::Subscriber sub_map_;
 
   geometry_msgs::PoseStamped goal_pose_;
-  ros::Publisher pub_goal_;
-  ros::Subscriber sub_status_;
-  int goal_status_ = actionlib_msgs::GoalStatus::PENDING;  // Status of our latest goal.
-  ros::Time goal_sent_time_{0, 0};
+  // No thread of its own (false): its callbacks run in ros::spinOnce() in run().
+  actionlib::SimpleActionClient<move_base_msgs::MoveBaseAction> move_base_{"move_base", false};
 
   ros::Time measure_start_{0, 0};
   State state_ = State::WAITING;
