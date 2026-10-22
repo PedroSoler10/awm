@@ -73,24 +73,47 @@ TEST(MeasureMap, KeepsMeasuredCellsWhenSizeIsSame) {
   EXPECT_EQ(countValue(measure_map, awm::kMeasured), 26);
 }
 
-TEST(MeasureMap, ResetsAfterResize) {
+TEST(MeasureMap, KeepsMeasuredCellsWhenMapGrows) {
   nav_msgs::OccupancyGrid measure_map;
   awm::updateMeasureMap(makeMap(20, 20), 0.25, 0.25, testParams(), &measure_map);
   ASSERT_EQ(*awm::cell(measure_map, 5, 5), awm::kMeasured);
 
-  // The SLAM map grew. Its free cells are 0, which must not be read as "measured".
+  // The SLAM map grew by 5 cells to the left and 2 below, so the world point (0.25, 0.25) is now
+  // cell (10, 7). Its free cells are 0, which must not be read as "measured".
   nav_msgs::OccupancyGrid bigger = makeMap(30, 25);
-  *awm::cell(&bigger, 20, 20) = 100;
-  awm::updateMeasureMap(bigger, 0.75, 0.75, testParams(), &measure_map);  // Cell (15, 15).
+  bigger.info.origin.position.x = -0.25;
+  bigger.info.origin.position.y = -0.10;
+  *awm::cell(&bigger, 25, 20) = 100;
+  awm::updateMeasureMap(bigger, 0.75, 0.75, testParams(), &measure_map);  // Cell (20, 17).
 
   EXPECT_EQ(measure_map.info.width, 30u);
   EXPECT_EQ(measure_map.info.height, 25u);
   ASSERT_EQ(measure_map.data.size(), bigger.data.size());
-  EXPECT_EQ(*awm::cell(measure_map, 5, 5), awm::kToMeasure);  // Forgotten.
-  EXPECT_EQ(*awm::cell(measure_map, 15, 15), awm::kMeasured);
-  EXPECT_EQ(countValue(measure_map, awm::kMeasured), 13);
+  EXPECT_EQ(*awm::cell(measure_map, 10, 7), awm::kMeasured);   // Carried over.
+  EXPECT_EQ(*awm::cell(measure_map, 5, 5), awm::kToMeasure);   // Same index, other place.
+  EXPECT_EQ(*awm::cell(measure_map, 20, 17), awm::kMeasured);  // Robot.
+  EXPECT_EQ(countValue(measure_map, awm::kMeasured), 26);
   EXPECT_EQ(countValue(measure_map, awm::kBlocked), 9);
-  EXPECT_EQ(countValue(measure_map, awm::kToMeasure), 30 * 25 - 13 - 9);
+  EXPECT_EQ(countValue(measure_map, awm::kToMeasure), 30 * 25 - 26 - 9);
+}
+
+TEST(MeasureMap, OriginShiftMovesMeasuredCellsUnlessNowBlocked) {
+  nav_msgs::OccupancyGrid measure_map;
+  awm::updateMeasureMap(makeMap(20, 20), 0.25, 0.25, testParams(), &measure_map);
+
+  // Same size, origin 2 cells to the right: the disk around (5, 5) is now around (3, 5), whose
+  // centre has become an obstacle. Its margin cells stay measured.
+  nav_msgs::OccupancyGrid shifted = makeMap(20, 20);
+  shifted.info.origin.position.x = 0.10;
+  *awm::cell(&shifted, 3, 5) = 100;
+  awm::updateMeasureMap(shifted, 0.75, 0.75, testParams(), &measure_map);  // Cell (13, 15).
+
+  EXPECT_EQ(*awm::cell(measure_map, 3, 5), awm::kBlocked);
+  EXPECT_EQ(*awm::cell(measure_map, 4, 5), awm::kMeasured);
+  EXPECT_EQ(*awm::cell(measure_map, 6, 5), awm::kToMeasure);  // Same index, other place.
+  EXPECT_EQ(*awm::cell(measure_map, 13, 15), awm::kMeasured);
+  EXPECT_EQ(countValue(measure_map, awm::kMeasured), 12 + 13);
+  EXPECT_EQ(countValue(measure_map, awm::kBlocked), 1);
 }
 
 TEST(MeasureMap, MarginDoesNotCoverMeasuredCells) {

@@ -29,6 +29,8 @@ struct GridCell {
 };
 
 // World position (metres) -> grid cell (x = column, y = row), rounded to the nearest cell.
+void worldToGrid(const nav_msgs::OccupancyGrid& grid, double world_x, double world_y, int* x,
+                 int* y);
 void worldToGrid(const nav_msgs::OccupancyGrid& grid, const geometry_msgs::Pose& pose, int* x,
                  int* y);
 

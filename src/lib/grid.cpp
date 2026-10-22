@@ -15,12 +15,15 @@
 
 namespace awm {
 
+void worldToGrid(const nav_msgs::OccupancyGrid& grid, double world_x, double world_y, int* x,
+                 int* y) {
+  *x = static_cast<int>(std::round((world_x - grid.info.origin.position.x) / grid.info.resolution));
+  *y = static_cast<int>(std::round((world_y - grid.info.origin.position.y) / grid.info.resolution));
+}
+
 void worldToGrid(const nav_msgs::OccupancyGrid& grid, const geometry_msgs::Pose& pose, int* x,
                  int* y) {
-  *x = static_cast<int>(
-      std::round((pose.position.x - grid.info.origin.position.x) / grid.info.resolution));
-  *y = static_cast<int>(
-      std::round((pose.position.y - grid.info.origin.position.y) / grid.info.resolution));
+  worldToGrid(grid, pose.position.x, pose.position.y, x, y);
 }
 
 void gridToWorld(const nav_msgs::OccupancyGrid& grid, int x, int y, double* world_x,

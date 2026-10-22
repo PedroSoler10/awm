@@ -154,10 +154,8 @@ class PointsIdentification {
   void dumpGoals(const std::vector<geometry_msgs::Point>& points) const {
     std::vector<awm::GridCell> marks;
     for (const geometry_msgs::Point& point : points) {
-      geometry_msgs::Pose pose;
-      pose.position = point;
       awm::GridCell mark;
-      awm::worldToGrid(*map_, pose, &mark.x, &mark.y);
+      awm::worldToGrid(*map_, point.x, point.y, &mark.x, &mark.y);
       marks.push_back(mark);
     }
     const std::string path = dump_dir_ + "/map_with_goals.txt";

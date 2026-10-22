@@ -38,7 +38,8 @@ struct MeasureMapParams {
 };
 
 // Rebuilds *measure_map from the SLAM map and the robot position (metres, "map" frame). Cells
-// measured before are kept, unless the SLAM map changed size. Does not touch the header stamp.
+// measured before stay measured, unless the SLAM map now blocks them. When the SLAM map changes
+// geometry (it grows: new size and origin), they are carried over by world position.
 void updateMeasureMap(const nav_msgs::OccupancyGrid& map, double robot_x, double robot_y,
                       const MeasureMapParams& params, nav_msgs::OccupancyGrid* measure_map);
 
