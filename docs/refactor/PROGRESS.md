@@ -22,3 +22,16 @@ Each session appends one section here before it commits: what changed, what was 
 **Tooling added.**
 - `scripts/container_build.sh [--test]`: builds (and tests) in the dev container.
 - `scripts/smoke_test.sh`: headless sim test with PASS/FAIL. It uses `stdbuf -oL` because node output to a file is block-buffered, and `pkill -f "[r]oslaunch"` so it does not kill its own shell.
+
+## Task 1: Remove files with no value (2026-10-22)
+
+**Changed.** `git rm` of `src/mapper.cpp`, `src/mapperT.cpp`, `src/myTest.cpp`, `src/measure_server.cpp`, `src/service_core.cpp`, `msg/Num.msg`. `CMakeLists.txt`: removed `mapper`/`mapperT` from `AWM_EXECUTABLES`, `add_message_files`, and the "Not built on purpose" block. README contents list fixed (no `mapper`, no `msg/`, `Num.msg`). Comments in `CMakeLists.txt` and `package.xml` that mentioned `msg/` now say `srv/` only.
+
+**Verified.**
+- `scripts/container_build.sh`: pass; 4 executables (brain, brainT, map_processing, points_identification). Stale `mapper`/`mapperT` binaries from the earlier build were deleted from `devel/lib/awm` by hand (untracked build output).
+- `scripts/smoke_test.sh`: PASS, 3 measurements in 48 s, same node list as the baseline, no errors. First goal (169,191) angle 3 matches the baseline; later goals differ by a few cells (e.g. (168,201) vs (168,200)), which is gmapping map variation, not a code change.
+- `scripts/check_format.sh`: clean.
+
+**Deviations.** None. `package.xml` keeps `message_generation`, still needed for `GoalPoints.srv`.
+
+**Open for Task 2.** The empty `msg/` directory is gone; nothing else references it.

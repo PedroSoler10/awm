@@ -22,7 +22,7 @@ project(awm)
 find_package(catkin REQUIRED COMPONENTS
   actionlib_msgs       # actionlib_msgs/GoalStatusArray.h (move_base goal status)
   geometry_msgs        # geometry_msgs/PoseStamped.h
-  message_generation   # turns the files in msg/ and srv/ into C++ headers
+  message_generation   # turns the files in srv/ into C++ headers
   move_base_msgs       # move_base_msgs/MoveBaseActionResult.h
   nav_msgs             # nav_msgs/OccupancyGrid.h (the map)
   roscpp               # ros/ros.h: ros::init, ros::Publisher, ros::spinOnce, ...
@@ -38,14 +38,9 @@ find_package(Boost REQUIRED COMPONENTS date_time)
 # ---------------------------------------------------------------------------
 # 2. Interfaces owned by this package (messages and services)
 # ---------------------------------------------------------------------------
-# add_message_files and add_service_files list the definition files.
+# add_service_files lists the definition files.
 # generate_messages() then creates the C++ headers, such as awm/GoalPoints.h.
 # It must come after the add_* calls.
-add_message_files(
-  FILES
-  Num.msg
-)
-
 add_service_files(
   FILES
   GoalPoints.srv
@@ -81,17 +76,9 @@ include_directories(
 # 4. Programs
 # ---------------------------------------------------------------------------
 # Each name below is built from src/<name>.cpp.
-#
-# Not built on purpose:
-#   src/measure_server.cpp  includes awm/Measure.h, which does not exist
-#   src/service_core.cpp    needs std_msgs, which is not declared
-#   src/myTest.cpp          a test file
-# Add them here only after fixing those problems.
 set(AWM_EXECUTABLES
   brain
   brainT
-  mapper
-  mapperT
   map_processing
   points_identification
 )

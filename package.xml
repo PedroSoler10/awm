@@ -20,7 +20,7 @@
   <!-- The build tool. Provided by ros-noetic-ros-base. -->
   <buildtool_depend>catkin</buildtool_depend>
 
-  <!-- Needed only to build: the messages in msg/ and srv/ are generated at build time. -->
+  <!-- Needed only to build: the services in srv/ are generated at build time. -->
   <build_depend>message_generation</build_depend>
 
   <!-- Packages used by the C++ code in src/. "depend" means needed to build,

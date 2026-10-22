@@ -4,8 +4,8 @@ ROS Noetic nodes, interfaces and launch files for the AWM project, running a Tur
 
 ## Contents
 
-- `src/`: C++ nodes (`brain`, `mapper`, `map_processing`, `points_identification`, ...).
-- `msg/`, `srv/`: custom interfaces (`Num.msg`, `GoalPoints.srv`).
+- `src/`: C++ nodes (`brain`, `brainT`, `map_processing`, `points_identification`, ...).
+- `srv/`: custom interface (`GoalPoints.srv`).
 - `launch/awm.launch`: single launch file for the simulation or the real robot, with a switch for each module (see [Launch options](#launch-options)).
 - `Dockerfile`: builds an image with every dependency already installed.
 - `scripts/debug_brain.sh`, `.vscode/`: debug `brain` with gdb (see [Debugging with gdb](#debugging-with-gdb)).
