@@ -34,7 +34,7 @@
   <arg name="nav" default="true" doc="run move_base (SLAM provides the localization)"/>
   <arg name="move_forward_only" default="false" doc="navigation never reverses the robot"/>
   <arg name="rviz" default="true" doc="open RViz"/>
-  <arg name="rviz_config" default="$(find turtlebot3_navigation)/rviz/turtlebot3_navigation.rviz" doc="RViz configuration file"/>
+  <arg name="rviz_config" default="$(find awm)/rviz/awm.rviz" doc="RViz configuration file (awm.rviz: TurtleBot3 navigation view plus /safe_map and /measure_map)"/>
   <arg name="brain" default="true" doc="run the awm brain node"/>
   <arg name="mode" default="standalone" doc="how brain chooses goals [standalone, modular]"/>
   <arg name="goal_mode" default="3" doc="modular only: mode asked from /goal_points [1 EXPLORATION, 2 MEASUREMENT, 3 FUSION]"/>

@@ -107,7 +107,7 @@ roslaunch awm awm.launch sim:=false                       # real robot (drivers 
 | `slam`, `slam_method` | `true`, `gmapping` | Run SLAM, and which method of `turtlebot3_slam`. |
 | `nav` | `true` | Run `move_base`. There is no AMCL: SLAM already localizes the robot. |
 | `move_forward_only` | `false` | Navigation never reverses. |
-| `rviz`, `rviz_config` | `true`, `turtlebot3_navigation.rviz` | Open RViz with this configuration. |
+| `rviz`, `rviz_config` | `true`, `rviz/awm.rviz` | Open RViz with this configuration. `awm.rviz` is the TurtleBot3 navigation view plus an **AWM** group with `/safe_map` (costmap colours, caution band visible) and `/measure_map` (white measured, black blocked, grey still to measure), both half transparent over `/map`; untick them in the Displays panel. |
 | `brain` | `true` | Run `brain`. With `false` it can be started by hand: `rosrun awm brain` (add `_goal_source:=service` in `modular`). |
 | `mode` | `standalone` | `standalone` or `modular` (see [How it works](#how-it-works)). Any other value stops the launch. |
 | `goal_mode` | `3` | `modular` only: `/goal_points` mode, 1 EXPLORATION, 2 MEASUREMENT, 3 FUSION. |
@@ -156,6 +156,7 @@ src/nodes/               brain, map_processing, points_identification (thin: par
 test/                    gtest unit tests of awm_core, no roscore needed
 srv/GoalPoints.srv       the /goal_points service
 launch/awm.launch        the only launch file
+rviz/awm.rviz            RViz view with /map, /safe_map and /measure_map
 scripts/                 install_deps, check_format, container_build, smoke_test, debug_brain
 docs/DEVELOPMENT.md      style, tools, dev container, debugging
 ```
