@@ -26,7 +26,7 @@
  * Calls:      /goal_points        (awm/GoalPoints), service mode only
  * Private params (defaults in brackets, internal / service when they differ):
  *   ~goal_source [internal] internal or service, ~goal_mode [3] (service only: 1 EXPLORATION,
- *   2 MEASUREMENT, 3 FUSION), ~search_limit_cells [200] (internal only), ~measure_duration_s [3.0],
+ *   2 MEASUREMENT, 3 FUSION), ~search_limit_cells [200] (internal only), ~measure_duration_s [1.0],
  *   ~measure_radius_m [0.5], ~inflate_radius_cells [6 / 0], ~occupied_threshold [90 / 49],
  *   ~output_dir [.] for the measurement files
  *
@@ -73,7 +73,7 @@ class Brain {
       return;
     }
 
-    pnh.param("measure_duration_s", measure_duration_s_, 3.0);
+    pnh.param("measure_duration_s", measure_duration_s_, 1.0);
     pnh.param("measure_radius_m", measure_params_.measure_radius_m, 0.5);
     // On /safe_map the caution band already is the margin around obstacles: cells from 50 up are
     // blocked and no extra inflation is needed.
