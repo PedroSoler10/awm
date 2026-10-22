@@ -62,3 +62,25 @@ Each session appends one section here before it commits: what changed, what was 
 **Open for Task 3.**
 - `OccupancyGrid::info.resolution` is `float32` (0.05f ≈ 0.0500000007), so a cell exactly at `radius_m` is outside `markDisk` (e.g. 0.1 m = 2 cells excludes the 2-cell ring). Same as the baseline; the tests use 0.11 m. Keep it in mind for safe-map distances.
 - `awm_core` links all of `${catkin_LIBRARIES}`; fine for now.
+
+## Task 3: map_processing → clean /safe_map producer (2026-10-22)
+
+**Changed.**
+- `safe_map.h/.cpp`: `makeSafeMap(map, occupied_threshold, caution_threshold, inflate_radius_cells, &safe_map)` plus constants `kSafeUnknown/Free/Caution/Occupied`. It copies the map (header and info), discretises (≥ occupied → 100, ≥ caution → 50, ≥ 0 → 0, else -1), then marks free cells in the square around each obstacle as 50. The band is read from the source map, so it never chains and never touches an occupied cell. Bounds use `awm::cell`, so row 0 and column 0 are included (old test was `> 0`).
+- `map_dump.h/.cpp`: `writeMapText(grid, path)`, symbols `* + · space` as before. It returns `false` if the file cannot be opened.
+- `src/nodes/map_processing.cpp` rewritten: `/map` (const ref) → `/safe_map` (latched); params `~occupied_threshold` 90, `~caution_threshold` 50, `~inflate_radius_cells` 6, `~dump_maps` false, `~dump_dir` "."; dump files deleted at start-up only when dumps are on. No TF, no `/scan_pose`, no loop, no `wait()`, no print helpers, no task-map code.
+- `test/test_safe_map.cpp` (9 tests): discretisation and thresholds, header/size kept, band around a 10x10 obstacle, band at the borders, unknown stays unknown, band not chained, empty map, text dump layout and bad path. `CMakeLists.txt`: new sources in `awm_core`, new test. `scripts/check_format.sh`: map_processing removed from the exclusions. README: contents list mentions the safe map and dump helpers.
+
+**Verified.**
+- `scripts/container_build.sh --test`: pass, 48 entries, 0 errors, 0 failures.
+- `scripts/check_format.sh`: clean.
+- `KEEP_RUNNING=1 scripts/smoke_test.sh`: PASS, 3 measurements in 33 s, same nodes and first goal (169,191) as the baseline. Then `rosrun awm map_processing _dump_maps:=true _dump_dir:=/tmp/dump` (via `docker exec -d`) was the only `/safe_map` publisher; `rostopic echo -n1 /safe_map/info` equals `/map/info` (384x384, 0.05, origin -10,-10); values were only -1/0/50/100; `map.txt` and `safe_map.txt` were written. Sim stopped afterwards.
+- Not run: other values of the params through a launch file (only defaults and the dump params).
+
+**Deviations.**
+- The old code also turned **unknown** cells (-1 < 50) near an obstacle into 50. Now unknown stays -1, because the task lists -1 as unknown and Task 4's frontier detection needs unknown cells next to walls. Say so if the old behaviour was wanted.
+- `awm::inflate` was not reused: it writes 100 and the safe map needs 50 on known-free cells only. The loop in `makeSafeMap` uses `awm::cell`.
+- `writeMapText` fixes the old index mix-up (`i` over height used with `width`; only right for square maps) and prints the top row (highest y) first, so the text has the orientation of RViz. Symbols are unchanged.
+- `awm.launch` does not start `map_processing` yet (not asked in this task).
+
+**Open for Task 4.** `/safe_map` has the same header (frame, stamp of the source map) as `/map`. Free cells are exactly 0; caution is 50; unknown is -1.

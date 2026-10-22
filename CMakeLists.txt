@@ -87,8 +87,10 @@ include_directories(
 # Code shared by the nodes (namespace awm). Headers in include/awm/.
 add_library(awm_core
   src/lib/grid.cpp
+  src/lib/map_dump.cpp
   src/lib/measure_map.cpp
   src/lib/robot_pose.cpp
+  src/lib/safe_map.cpp
 )
 add_dependencies(awm_core ${catkin_EXPORTED_TARGETS})
 target_link_libraries(awm_core ${catkin_LIBRARIES})
@@ -128,7 +130,7 @@ endforeach()
 # Run with "catkin_make run_tests_awm". They test pure functions of awm_core,
 # so they need no roscore.
 if(CATKIN_ENABLE_TESTING)
-  foreach(test test_grid test_measure_map)
+  foreach(test test_grid test_measure_map test_safe_map)
     catkin_add_gtest(${test} test/${test}.cpp)
     target_link_libraries(${test} awm_core ${catkin_LIBRARIES})
   endforeach()

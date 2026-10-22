@@ -5,7 +5,7 @@ ROS Noetic nodes, interfaces and launch files for the AWM project, running a Tur
 ## Contents
 
 - `src/nodes/`: C++ nodes, one executable per file (`brain`, `brainT`, `map_processing`, `points_identification`).
-- `include/awm/`, `src/lib/`: the `awm_core` library shared by the nodes (grid helpers, robot pose from tf, measure map).
+- `include/awm/`, `src/lib/`: the `awm_core` library shared by the nodes (grid helpers, robot pose from tf, measure map, safe map, text map dump).
 - `test/`: unit tests of `awm_core` (gtest, no roscore needed; run with `scripts/container_build.sh --test`).
 - `srv/`: custom interface (`GoalPoints.srv`).
 - `launch/awm.launch`: single launch file for the simulation or the real robot, with a switch for each module (see [Launch options](#launch-options)).
