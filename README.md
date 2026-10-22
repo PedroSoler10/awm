@@ -107,6 +107,8 @@ roslaunch awm awm.launch sim:=false                       # real robot (drivers 
 | `slam`, `slam_method` | `true`, `gmapping` | Run SLAM, and which method of `turtlebot3_slam`. |
 | `nav` | `true` | Run `move_base`. There is no AMCL: SLAM already localizes the robot. |
 | `move_forward_only` | `false` | Navigation never reverses. |
+| `goal_xy_tolerance` | `0.10` | Distance (m) at which `move_base` counts a goal as reached (TurtleBot3 default `0.05`). Measuring covers 0.5 m, so 10 cm is harmless. |
+| `goal_yaw_tolerance` | `3.15` | Heading error (rad) accepted at the goal. `3.15` ignores the heading, which measuring does not need; tight values (TurtleBot3 default `0.17`) made the robot back up to re-approach close goals. |
 | `rviz`, `rviz_config` | `true`, `rviz/awm.rviz` | Open RViz with this configuration. `awm.rviz` is the TurtleBot3 navigation view plus an **AWM** group with `/safe_map` (costmap colours, caution band visible) and `/measure_map` (white measured, black blocked, grey still to measure), both half transparent over `/map`; untick them in the Displays panel. |
 | `brain` | `true` | Run `brain`. With `false` it can be started by hand: `rosrun awm brain` (add `_goal_source:=service` in `modular`). |
 | `mode` | `standalone` | `standalone` or `modular` (see [How it works](#how-it-works)). Any other value stops the launch. |
