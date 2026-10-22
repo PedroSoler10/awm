@@ -1,0 +1,39 @@
+{
+  // Debug the brain node with gdb. See "Debugging with gdb" in the README.
+  "version": "0.2.0",
+  "configurations": [
+    {
+      // Starts brain under gdb. Start the rest first: task "sim without brain".
+      "name": "Debug brain (launch)",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/../../devel/lib/awm/brain",
+      "cwd": "${env:HOME}",
+      "MIMode": "gdb",
+      "miDebuggerPath": "/usr/bin/gdb",
+      "preLaunchTask": "build debug",
+      "environment": [
+        {
+          "name": "LD_LIBRARY_PATH",
+          "value": "/opt/ros/noetic/lib:${workspaceFolder}/../../devel/lib"
+        }
+      ],
+      "setupCommands": [
+        { "text": "-enable-pretty-printing", "ignoreFailures": true }
+      ]
+    },
+    {
+      // Attaches to a brain already started by roslaunch (pick it from the list).
+      "name": "Debug brain (attach)",
+      "type": "cppdbg",
+      "request": "attach",
+      "program": "${workspaceFolder}/../../devel/lib/awm/brain",
+      "processId": "${command:pickProcess}",
+      "MIMode": "gdb",
+      "miDebuggerPath": "/usr/bin/gdb",
+      "setupCommands": [
+        { "text": "-enable-pretty-printing", "ignoreFailures": true }
+      ]
+    }
+  ]
+}

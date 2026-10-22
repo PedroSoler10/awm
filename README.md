@@ -8,6 +8,7 @@ ROS Noetic nodes, interfaces and launch files for the AWM project, running a Tur
 - `msg/`, `srv/`: custom interfaces (`Num.msg`, `GoalPoints.srv`).
 - `launch/awm.launch`: single launch file for the simulation or the real robot, with a switch for each module (see [Launch options](#launch-options)).
 - `Dockerfile`: builds an image with every dependency already installed.
+- `scripts/debug_brain.sh`, `.vscode/`: debug `brain` with gdb (see [Debugging with gdb](#debugging-with-gdb)).
 - `docs/CONFIGURATION.md`: coding style, formatting and lint tools, editor setup, and the development container.
 
 ## Option A: Native install (Ubuntu 20.04 + ROS Noetic)
@@ -289,6 +290,59 @@ roslaunch awm awm.launch brain:=false
 ```bash
 rosrun awm brain
 ```
+
+## Debugging with gdb
+
+gdb stops the `brain` node at a line you choose, so you can read variables and step through the code. It is installed in the Docker image (natively: `sudo apt install gdb`). Both ways below need the same preparation.
+
+**Preparation (once per build).** Build with debug symbols, otherwise variables show `<optimized out>`:
+
+```bash
+cd ~/shared_ros_ws && catkin_make -DCMAKE_BUILD_TYPE=Debug
+```
+
+Start everything except `brain` and, if you want the world to wait while you look, pause it:
+
+```bash
+roslaunch awm awm.launch brain:=false gui:=false rviz:=false
+```
+
+```bash
+rosservice call /gazebo/pause_physics
+```
+
+Unpause with `rosservice call /gazebo/unpause_physics`. Pausing stops `/clock`, so the robot, SLAM and the node's timers all wait.
+
+### In the terminal
+
+```bash
+scripts/debug_brain.sh
+```
+
+It starts `brain` under gdb and stops at `Brain::control`. Pass other functions to stop at them: `scripts/debug_brain.sh Brain::fnPubGoal Brain::fnMeasure`.
+
+gdb may stop on the function's opening line, before `this` is set, so `print state_` fails with "Cannot access memory". Type `next` once and it works.
+
+| Command | What it does |
+|---|---|
+| `next` / `step` | Run the next line / enter the function called on it |
+| `finish` | Run until the current function returns |
+| `continue` | Resume until the next breakpoint |
+| `print x`, `display x` | Show a variable once / every time gdb stops |
+| `bt`, `up`, `down` | Call stack and moving between its frames |
+| `break f if cond` | Stop in `f` only when `cond` is true |
+| `watch x` | Stop whenever `x` changes |
+| `Ctrl+C` | Interrupt the running program |
+| `quit` | Leave gdb |
+
+### In VS Code
+
+1. Install the Dev Containers extension and run **Dev Containers: Reopen in Container**. If the container was already built, run **Dev Containers: Rebuild Container** once, so gdb and the debugging permissions are included.
+2. Run the task **sim without brain** (Terminal > Run Task), and optionally **pause sim**.
+3. Click left of a line number in `src/brain.cpp` to set a breakpoint.
+4. Press **F5** with **Debug brain (launch)** selected. It builds in Debug mode, starts `brain` and stops at your breakpoint. **Debug brain (attach)** connects to a `brain` that `roslaunch` already started.
+
+Use the toolbar (F10 next, F11 step into, Shift+F11 finish, F5 continue), the **Variables**, **Watch** and **Call Stack** panels, or type `-exec print x` in the Debug Console. Right-click a breakpoint to add a condition or a logpoint.
 
 ## Setting up .bashrc
 
