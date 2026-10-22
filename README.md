@@ -6,28 +6,19 @@ ROS Noetic package that makes a TurtleBot3 (Gazebo simulation or real robot) cov
 
 ```mermaid
 flowchart LR
-  slam[SLAM<br/>gmapping] -- /map --> brain
-  brain -- "/move_base (action)" --> mb[move_base]
-  brain -- /measure_map --> pi
-  slam -- /map --> mp[map_processing]
+  slam[SLAM<br/>gmapping] -- /map --> mp[map_processing]
   mp -- /safe_map --> brain
   mp -- /safe_map --> pi[points_identification]
-  slam -- /map --> pi
+  brain -- /measure_map --> pi
   brain -- "/goal_points (service)" --> pi
-  classDef modular stroke-dasharray: 4 4
-  class mp,pi modular
+  brain -- "/move_base (action)" --> mb[move_base]
 ```
 
-`brain` loops: **MEASURING** (stand still `~measure_duration_s`, write a measurement file, mark the cells around the robot in `/measure_map`) → ask for a goal → **REACHING_GOAL** (`move_base` drives; when it finishes, reached or not, the goal area is marked measured) → MEASURING again → **DONE** when there is no goal left.
+- **`map_processing`** turns the SLAM map into the **safe map**: occupancy ≥ `occupied_threshold` (80) is an obstacle, and free cells closer than `obstacle_margin_m` (0.40 m) to an obstacle are *caution*: no goal is placed there.
+- **`brain`** keeps the **measure map** on top of the safe map: every known cell below the threshold is to be measured, *including the caution band* next to walls. A measurement marks every cell within `measure_radius_m` (0.5 m) of the robot.
+- **`points_identification`** serves goals on `/goal_points`. **MEASUREMENT** (`2`): the nearest cell still to measure; if it is in the caution band, the goal is the nearest free cell within `measure_radius_m` of it, so measuring there covers it. **EXPLORATION** (`1`): frontiers, one goal per cluster of free cells next to unknown space, minus those already measured. **FUSION** (`3`, default): MEASUREMENT, then EXPLORATION when nothing is left to measure within reach, so the robot also goes to discover unknown space.
 
-How the goal is chosen depends on the launch `mode` (dashed nodes run only in `modular`):
-
-| `mode` | Goal policy | Ends with |
-|---|---|---|
-| `standalone` (default) | `brain` builds its measure map on `/map` and goes to the closest cell not measured yet. | `EVERYTHING MEASURED` |
-| `modular` | `map_processing` turns `/map` into `/safe_map` (with a caution band around walls); `brain` builds its measure map on it and asks `points_identification` for one goal on `/goal_points` in `goal_mode` (default `3` FUSION). | `NO MORE GOAL POINTS` |
-
-`/goal_points` modes: `1` EXPLORATION (frontiers: one goal per cluster of free cells next to unknown space, minus those already measured), `2` MEASUREMENT (nearest unmeasured cells of `/measure_map`), `3` FUSION (MEASUREMENT, then EXPLORATION if that is empty). Goals are in the `map` frame, closest first.
+`brain` loops: **MEASURING** (stand still `~measure_duration_s`, write a measurement file, update `/measure_map`) → ask `/goal_points` for a goal → **REACHING_GOAL** (`move_base` drives; when it finishes, reached or not, the goal area is marked measured) → MEASURING again → **DONE** when the service has no goal left (`NO MORE GOAL POINTS`). brain then logs how many cells could not be measured (no free cell within `measure_radius_m` of them).
 
 ## Quick start
 
@@ -92,7 +83,7 @@ The VS Code dev container, the helper scripts and debugging are described in [do
 
 ```bash
 roslaunch awm awm.launch                                  # full simulation
-roslaunch awm awm.launch mode:=modular goal_mode:=1       # goals from /goal_points, frontiers only
+roslaunch awm awm.launch goal_mode:=1                     # frontier goals only
 roslaunch awm awm.launch brain:=false gui:=false rviz:=false  # everything but brain, headless
 roslaunch awm awm.launch sim:=false                       # real robot (drivers on this machine)
 ```
@@ -110,50 +101,48 @@ roslaunch awm awm.launch sim:=false                       # real robot (drivers 
 | `goal_xy_tolerance` | `0.10` | Distance (m) at which `move_base` counts a goal as reached (TurtleBot3 default `0.05`). Measuring covers 0.5 m, so 10 cm is harmless. |
 | `goal_yaw_tolerance` | `3.15` | Heading error (rad) accepted at the goal. `3.15` ignores the heading, which measuring does not need; tight values (TurtleBot3 default `0.17`) made the robot back up to re-approach close goals. |
 | `rviz`, `rviz_config` | `true`, `rviz/awm.rviz` | Open RViz with this configuration. `awm.rviz` is the TurtleBot3 navigation view plus an **AWM** group with `/safe_map` (costmap colours, caution band visible) and `/measure_map` (white measured, black blocked, grey still to measure), both half transparent over `/map`; untick them in the Displays panel. |
-| `brain` | `true` | Run `brain`. With `false` it can be started by hand: `rosrun awm brain` (add `_goal_source:=service` in `modular`). |
-| `mode` | `standalone` | `standalone` or `modular` (see [How it works](#how-it-works)). Any other value stops the launch. |
-| `goal_mode` | `3` | `modular` only: `/goal_points` mode, 1 EXPLORATION, 2 MEASUREMENT, 3 FUSION. |
+| `brain` | `true` | Run `brain`. With `false` the other awm nodes still run, so brain can be started by hand (`rosrun awm brain`) or under gdb. |
+| `goal_mode` | `3` | `/goal_points` mode brain asks for: 1 EXPLORATION, 2 MEASUREMENT, 3 FUSION. |
+| `occupied_threshold` | `80` | SLAM occupancy from this value up is an obstacle; every known cell below it is measured. |
+| `obstacle_margin_m` | `0.40` | No goal closer than this to an obstacle (cells exactly this far are allowed). |
+| `measure_radius_m` | `0.5` | Cells this close to a measurement count as measured (brain and points_identification). |
 
 ## Nodes, topics and parameters
 
 | Name | Type | From | To |
 |---|---|---|---|
-| `/map` | `nav_msgs/OccupancyGrid` | SLAM | `brain` (standalone), `map_processing`, `points_identification` |
-| `/safe_map` | `nav_msgs/OccupancyGrid`, latched | `map_processing` | `brain` (modular), `points_identification` |
+| `/map` | `nav_msgs/OccupancyGrid` | SLAM | `map_processing` |
+| `/safe_map` | `nav_msgs/OccupancyGrid`, latched | `map_processing` | `brain`, `points_identification` |
 | `/measure_map` | `nav_msgs/OccupancyGrid`, latched | `brain` | `points_identification` |
 | `/scan_pose` | `geometry_msgs/PoseStamped` | `brain` | RViz, tools |
 | `/move_base` | `move_base_msgs/MoveBase` action | `brain` (client) | `move_base` (server) |
-| `/goal_points` | `awm/GoalPoints` service | `points_identification` (server) | `brain` (modular) |
+| `/goal_points` | `awm/GoalPoints` service | `points_identification` (server) | `brain` |
 
-Map values: SLAM `-1` unknown, `0..100` occupancy. Safe map: `-1` unknown, `0` free, `50` caution, `100` occupied. Measure map: `100` blocked (obstacle, unknown or too close to one), `0` measured, `-1` still to measure.
+Map values: SLAM `-1` unknown, `0..100` occupancy. Safe map: `-1` unknown, `0` free, `50` caution (too close to an obstacle for a goal), `100` occupied. Measure map: `100` unknown or occupied (never measured), `0` measured, `-1` still to measure.
 
-Private parameters (set with `rosrun awm <node> _name:=value`; `awm.launch` sets only `goal_source` and `goal_mode`):
+Private parameters (set with `rosrun awm <node> _name:=value`; `awm.launch` sets the ones that have a launch argument):
 
 | Node | Parameter | Default | Meaning |
 |---|---|---|---|
-| `brain` | `~goal_source` | `internal` | `internal` (standalone search) or `service` (ask `/goal_points`). Other values stop the node. |
-| | `~goal_mode` | `3` | `service` only: mode sent to `/goal_points`. Other values stop the node. |
-| | `~search_limit_cells` | `200` | `internal` only: farthest goal searched from the robot. |
+| `map_processing` | `~occupied_threshold` | `80` | From this occupancy up: obstacle. |
+| | `~obstacle_margin_m` | `0.40` | Free cells closer than this to an obstacle become caution. |
+| | `~dump_maps`, `~dump_dir` | `false`, `.` | Write `map.txt` and `safe_map.txt` on every map. |
+| `brain` | `~goal_mode` | `3` | Mode sent to `/goal_points`. Other values stop the node. |
 | | `~measure_duration_s` | `1.0` | Time standing still per measurement. |
 | | `~measure_radius_m` | `0.5` | Cells this close to the robot count as measured. |
-| | `~inflate_radius_cells` | `6` / `0` | Margin around obstacles (`0` on the safe map: its caution band is the margin). Two defaults: `internal` / `service`. |
-| | `~occupied_threshold` | `90` / `49` | Occupancy above this is an obstacle (`49` blocks the caution band). |
 | | `~output_dir` | `.` | Folder for the measurement files (`~/.ros` under roslaunch). |
-| `map_processing` | `~occupied_threshold` | `90` | From this value up: occupied. |
-| | `~caution_threshold` | `50` | From this value up: caution. |
-| | `~inflate_radius_cells` | `6` | Free cells within this square radius of an obstacle become caution. |
-| | `~dump_maps`, `~dump_dir` | `false`, `.` | Write `map.txt` and `safe_map.txt` on every map. |
-| `points_identification` | `~min_cluster_size` | `5` | Smaller frontier clusters are ignored. |
-| | `~search_limit_cells` | `200` | Farthest unmeasured cell searched from the robot. |
-| | `~dump_maps`, `~dump_dir` | `false`, `.` | Write `map_with_goals.txt` (goals drawn as `8`) on every request. |
+| `points_identification` | `~measure_radius_m` | `0.5` | Must match brain's: how far from a caution cell its goal may be. |
+| | `~search_limit_cells` | `200` | Farthest cell still to measure searched from the robot. |
+| | `~min_cluster_size` | `5` | Smaller frontier clusters are ignored. |
+| | `~dump_maps`, `~dump_dir` | `false`, `.` | Write `safe_map_with_goals.txt` (goals drawn as `8`) on every request. |
 
-Try the service by hand next to the standalone brain: `rosrun awm map_processing`, `rosrun awm points_identification`, then `rosservice call /goal_points "{mode: 1, num: 5}"` (`num: 0` returns all). An unknown mode makes the call fail; missing maps or pose give an empty list.
+Try the service by hand: `rosservice call /goal_points "{mode: 2, num: 5}"` (`num: 0` returns all). An unknown mode makes the call fail; missing maps or pose give an empty list.
 
 ## Code layout
 
 ```
 include/awm/, src/lib/   awm_core library (namespace awm): grid helpers, measure map, safe map,
-                         frontiers, map text dump, robot pose from tf, brain's goal sources
+                         frontiers, map text dump, robot pose from tf, /goal_points client
 src/nodes/               brain, map_processing, points_identification (thin: params, topics, calls)
 test/                    gtest unit tests of awm_core, no roscore needed
 srv/GoalPoints.srv       the /goal_points service
@@ -171,15 +160,17 @@ Unit tests (from the workspace, natively or in the container):
 catkin_make run_tests_awm && catkin_test_results build/test_results/awm
 ```
 
-They cover the grid helpers, measure map, safe map, frontiers and the standalone goal source. `ServiceGoalSource` and the nodes need ROS running and are covered by the smoke test, which runs a headless simulation in the dev container until `brain` has made 3 measurements and prints `PASS` or `FAIL` (see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md#scripts)):
+They cover the grid helpers, safe map, measure map and measurement goals, and frontiers. The `/goal_points` client and the nodes need ROS running and are covered by the smoke test, which runs a headless simulation in the dev container until `brain` has made 3 measurements and prints `PASS` or `FAIL` (see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md#scripts)):
 
 ```bash
-scripts/smoke_test.sh mode:=modular
+scripts/smoke_test.sh goal_mode:=2
 ```
 
 ## Known limitations
 
 - **The measurement is a placeholder:** an empty file named after the position and time (`<x>_<y>_<time>.txt`).
+- **gmapping publishes only `-1`, `0` and `100`**, so `occupied_threshold` makes no difference with it. The nodes handle `0..100` probabilities, but Cartographer, the probabilistic SLAM TurtleBot3 supports, has no Noetic binary package and would have to be built from source.
+- **A measurement ignores walls:** it marks every cell within `measure_radius_m`. In a corridor too narrow for a free cell on the near side, a cell next to a thin wall can be measured from the other side of it.
 - **Ring search sampling:** the nearest-cell search samples 360 angles per circle, so beyond about 57 cells (≈2.9 m) it can skip single cells between two samples. They are found once the robot gets closer.
 - **The service call blocks brain's loop** until `/goal_points` answers (it waits for the service if `points_identification` is down), so `/scan_pose` pauses meanwhile.
 - **No goal timeout:** `brain` relies on `move_base` aborting a goal it cannot reach.

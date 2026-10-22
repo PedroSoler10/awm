@@ -8,9 +8,9 @@ How the code is organised and styled, the tools that check it, the dev container
 
 ## Code layout
 
-- **Library `awm_core`** (`include/awm/*.h`, `src/lib/*.cpp`, namespace `awm`): all the logic on grids and poses. Functions are pure where possible: they take `nav_msgs::OccupancyGrid`s and numbers, do not publish and do not read ROS time, so they are unit tested without a ROS master. The exceptions are `RobotPose` (tf) and `ServiceGoalSource` (service call).
+- **Library `awm_core`** (`include/awm/*.h`, `src/lib/*.cpp`, namespace `awm`): all the logic on grids and poses. Functions are pure where possible: they take `nav_msgs::OccupancyGrid`s and numbers, do not publish and do not read ROS time, so they are unit tested without a ROS master. The exceptions are `RobotPose` (tf) and `requestGoal` (service call).
 - **Nodes** (`src/nodes/<name>.cpp`, listed in `AWM_EXECUTABLES` in `CMakeLists.txt`): one class per node. The constructor reads parameters and sets up publishers, subscribers and services; `main` calls `ros::spin()`, or `run()` for `brain`'s 10 Hz control loop. Map publishers are latched with queue 1, so a node that starts later still gets the last map.
-- **Goal sources:** `brain` owns one `awm::GoalSource` (Strategy pattern, `goal_source.h`): `NearestUnmeasuredGoalSource` (in-process ring search) or `ServiceGoalSource` (`/goal_points`).
+- **Who decides what:** the safe map says where the robot may go (goals only on free cells), the measure map says what is measured; `points_identification` combines them into goals and `brain` only runs the state machine.
 - **Parameters:** private, read with `pnh.param(name, member, default)`, so the defaults live in the code. An invalid value logs `ROS_FATAL` and stops the node at start-up. The README lists them all.
 - **Tests** (`test/test_<name>.cpp`): gtest on small hand-made grids with exact cell values, registered in section 6 of `CMakeLists.txt`.
 - **Interfaces:** `srv/GoalPoints.srv` is the only one. A library file that includes a generated header needs the `add_dependencies(awm_core ...)` that `CMakeLists.txt` already has.
