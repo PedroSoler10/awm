@@ -86,6 +86,14 @@ TEST(Grid, CellBeyondShortDataIsNull) {
   EXPECT_EQ(awm::cell(static_cast<const nav_msgs::OccupancyGrid&>(grid), 3, 2), nullptr);
 }
 
+TEST(Grid, HasFullData) {
+  nav_msgs::OccupancyGrid grid = makeGrid(4, 3, 0);
+  EXPECT_TRUE(awm::hasFullData(grid));
+  grid.data.resize(11);
+  EXPECT_FALSE(awm::hasFullData(grid));
+  EXPECT_TRUE(awm::hasFullData(nav_msgs::OccupancyGrid()));  // 0 x 0, no data.
+}
+
 TEST(Grid, MarkDiskRadius) {
   nav_msgs::OccupancyGrid grid = makeGrid(41, 41, -1);
   // 0.11 m at 5 cm per cell is 2.2 cells: the disk is the 13 cells with x^2 + y^2 <= 4. Not exactly

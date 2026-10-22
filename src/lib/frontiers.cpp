@@ -31,10 +31,6 @@ bool hasUnknownNeighbour(const nav_msgs::OccupancyGrid& map, int x, int y) {
   return false;
 }
 
-bool sizeMatchesData(const nav_msgs::OccupancyGrid& grid) {
-  return grid.data.size() == static_cast<std::size_t>(grid.info.width) * grid.info.height;
-}
-
 double squaredDistance(double x0, double y0, double x1, double y1) {
   return (x0 - x1) * (x0 - x1) + (y0 - y1) * (y0 - y1);
 }
@@ -45,7 +41,7 @@ bool findFrontierCells(const nav_msgs::OccupancyGrid& map, const nav_msgs::Occup
                        std::vector<GridCell>* cells) {
   cells->clear();
   if (map.info.width != safe_map.info.width || map.info.height != safe_map.info.height ||
-      !sizeMatchesData(map) || !sizeMatchesData(safe_map))
+      !hasFullData(map) || !hasFullData(safe_map))
     return false;
 
   for (int y = 0; y < static_cast<int>(map.info.height); y++) {

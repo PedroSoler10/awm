@@ -41,6 +41,7 @@
 #include "awm/map_dump.h"
 #include "awm/measure_map.h"
 #include "awm/robot_pose.h"
+#include "awm/service_goal_source.h"
 
 class PointsIdentification {
  public:
@@ -73,8 +74,7 @@ class PointsIdentification {
   bool getGoalPoints(awm::GoalPoints::Request& req,     // NOLINT(runtime/references)
                      awm::GoalPoints::Response& res) {  // NOLINT(runtime/references)
     using Request = awm::GoalPoints::Request;
-    if (req.mode != Request::EXPLORATION && req.mode != Request::MEASUREMENT &&
-        req.mode != Request::FUSION) {
+    if (!awm::isValidGoalMode(req.mode)) {
       ROS_WARN("GOAL POINTS: UNKNOWN MODE %d (1 EXPLORATION, 2 MEASUREMENT, 3 FUSION)", req.mode);
       return false;
     }

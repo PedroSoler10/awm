@@ -19,7 +19,7 @@
 
 namespace awm {
 
-bool ServiceGoalSource::isValidMode(int goal_mode) {
+bool isValidGoalMode(int goal_mode) {
   using Request = GoalPoints::Request;
   return goal_mode == Request::EXPLORATION || goal_mode == Request::MEASUREMENT ||
          goal_mode == Request::FUSION;

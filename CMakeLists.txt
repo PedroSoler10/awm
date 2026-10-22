@@ -15,6 +15,9 @@ project(awm)
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Warnings for common mistakes (unused variables, signed/unsigned comparisons, ...).
+add_compile_options(-Wall -Wextra)
+
 # ---------------------------------------------------------------------------
 # 1. Build dependencies
 # ---------------------------------------------------------------------------

@@ -18,6 +18,10 @@
 
 namespace awm {
 
+// True for the modes /goal_points accepts (awm::GoalPoints::Request::EXPLORATION, MEASUREMENT,
+// FUSION).
+bool isValidGoalMode(int goal_mode);
+
 // Asks the /goal_points service (points_identification) for one goal, in the given mode
 // (awm::GoalPoints::Request::EXPLORATION, MEASUREMENT or FUSION). The goal faces the direction
 // from the robot to the point, because the service gives positions only.
@@ -25,9 +29,6 @@ class ServiceGoalSource : public GoalSource {
  public:
   explicit ServiceGoalSource(std::uint8_t goal_mode, const std::string& service = "/goal_points")
       : goal_mode_(goal_mode), service_(service) {}
-
-  // True for the modes the service accepts.
-  static bool isValidMode(int goal_mode);
 
   // Blocks until the service answers, so false only means that it has no goal left (or that ROS
   // is shutting down).

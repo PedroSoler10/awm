@@ -83,11 +83,10 @@ class Brain {
     pnh.param("output_dir", output_dir_, std::string("."));
 
     std::string map_topic = "/map";
-    int map_queue = 100;
     if (service) {
       int goal_mode;
       pnh.param("goal_mode", goal_mode, static_cast<int>(awm::GoalPoints::Request::FUSION));
-      if (!awm::ServiceGoalSource::isValidMode(goal_mode)) {
+      if (!awm::isValidGoalMode(goal_mode)) {
         ROS_FATAL("~goal_mode must be 1 (EXPLORATION), 2 (MEASUREMENT) or 3 (FUSION), got %d",
                   goal_mode);
         ros::shutdown();
@@ -95,7 +94,6 @@ class Brain {
       }
       goal_source_ = std::make_unique<awm::ServiceGoalSource>(static_cast<std::uint8_t>(goal_mode));
       map_topic = "/safe_map";
-      map_queue = 10;
       map_name_ = "SAFE MAP";
     } else {
       int search_limit_cells;
@@ -103,9 +101,10 @@ class Brain {
       goal_source_ = std::make_unique<awm::NearestUnmeasuredGoalSource>(search_limit_cells);
     }
 
-    pub_scan_pose_ = n_.advertise<geometry_msgs::PoseStamped>("/scan_pose", 100);
-    pub_measure_map_ = n_.advertise<nav_msgs::OccupancyGrid>("/measure_map", 100, true);
-    sub_map_ = n_.subscribe(map_topic, map_queue, &Brain::mapCallback, this);
+    // Queues of 1: only the latest pose and map matter.
+    pub_scan_pose_ = n_.advertise<geometry_msgs::PoseStamped>("/scan_pose", 1);
+    pub_measure_map_ = n_.advertise<nav_msgs::OccupancyGrid>("/measure_map", 1, true);
+    sub_map_ = n_.subscribe(map_topic, 1, &Brain::mapCallback, this);
     ROS_INFO("INITIALIZATION DONE");
   }
 
@@ -133,7 +132,7 @@ class Brain {
   // One step of the state machine, called at 10 Hz from run().
   void control() {
     // Every state needs the robot pose and a map; until both exist SLAM or tf are not up yet.
-    if (!readScanPose() || !map_ || map_->data.empty()) {
+    if (!readScanPose() || !map_ || map_->data.empty() || !awm::hasFullData(*map_)) {
       ROS_INFO_THROTTLE(1.0, "WAITING FOR %s AND SCAN POSE", map_name_);
       return;
     }

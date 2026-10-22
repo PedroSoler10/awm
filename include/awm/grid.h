@@ -38,6 +38,9 @@ void worldToGrid(const nav_msgs::OccupancyGrid& grid, const geometry_msgs::Pose&
 void gridToWorld(const nav_msgs::OccupancyGrid& grid, int x, int y, double* world_x,
                  double* world_y);
 
+// True if data holds exactly width * height cells, as every message from SLAM should.
+bool hasFullData(const nav_msgs::OccupancyGrid& grid);
+
 // Cell (x, y) of the grid, or nullptr if it is outside the grid (or beyond the end of data).
 std::int8_t* cell(nav_msgs::OccupancyGrid* grid, int x, int y);
 const std::int8_t* cell(const nav_msgs::OccupancyGrid& grid, int x, int y);

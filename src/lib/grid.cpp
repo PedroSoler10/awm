@@ -32,6 +32,10 @@ void gridToWorld(const nav_msgs::OccupancyGrid& grid, int x, int y, double* worl
   *world_y = y * grid.info.resolution + grid.info.origin.position.y;
 }
 
+bool hasFullData(const nav_msgs::OccupancyGrid& grid) {
+  return grid.data.size() == static_cast<std::size_t>(grid.info.width) * grid.info.height;
+}
+
 namespace {
 
 // Index of cell (x, y) in grid.data, or false if the cell is outside the grid. data is checked

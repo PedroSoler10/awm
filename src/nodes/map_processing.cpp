@@ -43,8 +43,9 @@ class MapProcessing {
       std::remove(dumpPath("safe_map.txt").c_str());
     }
 
-    pub_safe_map_ = nh_.advertise<nav_msgs::OccupancyGrid>("/safe_map", 10, true);
-    sub_map_ = nh_.subscribe("/map", 10, &MapProcessing::mapCallback, this);
+    // Queues of 1: only the latest map matters.
+    pub_safe_map_ = nh_.advertise<nav_msgs::OccupancyGrid>("/safe_map", 1, true);
+    sub_map_ = nh_.subscribe("/map", 1, &MapProcessing::mapCallback, this);
   }
 
  private:
