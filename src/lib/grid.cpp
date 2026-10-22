@@ -10,6 +10,8 @@
 
 #include <cmath>
 #include <cstddef>
+#include <set>
+#include <utility>
 
 namespace awm {
 
@@ -70,20 +72,37 @@ void inflate(const nav_msgs::OccupancyGrid& source, int threshold, int radius_ce
 
 bool findNearestCell(const nav_msgs::OccupancyGrid& grid, int x0, int y0, std::int8_t wanted_value,
                      int max_radius_cells, int* x, int* y, int* angle_deg) {
+  std::vector<GridCell> found;
+  std::vector<int> angles;
+  if (!findNearestCells(grid, x0, y0, wanted_value, max_radius_cells, 1, &found, &angles))
+    return false;
+  *x = found[0].x;
+  *y = found[0].y;
+  *angle_deg = angles[0];
+  return true;
+}
+
+bool findNearestCells(const nav_msgs::OccupancyGrid& grid, int x0, int y0, std::int8_t wanted_value,
+                      int max_radius_cells, int n, std::vector<GridCell>* out,
+                      std::vector<int>* angles_deg) {
+  out->clear();
+  if (angles_deg != nullptr) angles_deg->clear();
+  // Rounding makes small circles hit the same cell at several angles, and circles of different
+  // radius can share a cell too.
+  std::set<std::pair<int, int>> seen;
   for (int d = 0; d <= max_radius_cells; d++) {
     for (int a = 0; a < 360; a++) {
       const double angle = a * M_PI / 180;
       const int cx = x0 + static_cast<int>(std::round(d * std::cos(angle)));
       const int cy = y0 + static_cast<int>(std::round(d * std::sin(angle)));
       const std::int8_t* c = cell(grid, cx, cy);
-      if (c == nullptr || *c != wanted_value) continue;
-      *x = cx;
-      *y = cy;
-      *angle_deg = a;
-      return true;
+      if (c == nullptr || *c != wanted_value || !seen.insert({cx, cy}).second) continue;
+      out->push_back({cx, cy});
+      if (angles_deg != nullptr) angles_deg->push_back(a);
+      if (n > 0 && static_cast<int>(out->size()) == n) return true;
     }
   }
-  return false;
+  return !out->empty();
 }
 
 }  // namespace awm

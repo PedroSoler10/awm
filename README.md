@@ -5,9 +5,9 @@ ROS Noetic nodes, interfaces and launch files for the AWM project, running a Tur
 ## Contents
 
 - `src/nodes/`: C++ nodes, one executable per file (`brain`, `brainT`, `map_processing`, `points_identification`).
-- `include/awm/`, `src/lib/`: the `awm_core` library shared by the nodes (grid helpers, robot pose from tf, measure map, safe map, text map dump).
+- `include/awm/`, `src/lib/`: the `awm_core` library shared by the nodes (grid helpers, robot pose from tf, measure map, safe map, frontier detection, text map dump).
 - `test/`: unit tests of `awm_core` (gtest, no roscore needed; run with `scripts/container_build.sh --test`).
-- `srv/`: custom interface (`GoalPoints.srv`).
+- `srv/`: custom interface (`GoalPoints.srv`, served by `points_identification` as `/goal_points`, see [Goal points service](#goal-points-service)).
 - `launch/awm.launch`: single launch file for the simulation or the real robot, with a switch for each module (see [Launch options](#launch-options)).
 - `Dockerfile`: builds an image with every dependency already installed.
 - `scripts/debug_brain.sh`, `.vscode/`: debug `brain` with gdb (see [Debugging with gdb](#debugging-with-gdb)).
@@ -304,6 +304,34 @@ rosrun awm brain
 | `~search_limit_cells` | `200` | Farthest goal searched from the robot, in cells |
 | `~occupied_threshold` | `90` | Occupancy above this is an obstacle |
 | `~output_dir` | `.` | Folder for the measurement files (`.` is the working directory, `~/.ros` under roslaunch) |
+
+### Goal points service
+
+`points_identification` serves `/goal_points` (`awm/GoalPoints`). It is not started by `awm.launch` yet; run it next to `map_processing`, which provides `/safe_map`:
+
+```bash
+rosrun awm map_processing
+```
+
+```bash
+rosrun awm points_identification
+```
+
+```bash
+rosservice call /goal_points "{mode: 1, num: 5}"
+```
+
+- `mode` 1 `EXPLORATION`: one goal per cluster of free cells next to unknown space (frontiers), read from `/map` and `/safe_map`.
+- `mode` 2 `MEASUREMENT`: the nearest cells of `/measure_map` (published by `brain`) that are still to be measured.
+- `mode` 3 `FUSION`: `MEASUREMENT`, and `EXPLORATION` if that finds nothing.
+- `num` is the most points returned (`0` = all). `points` are in the `map` frame, closest to the robot first. An unknown `mode` makes the call fail; missing maps or robot pose give an empty list.
+
+| Parameter | Default | Meaning |
+|---|---|---|
+| `~min_cluster_size` | `5` | Frontiers with fewer cells are ignored |
+| `~search_limit_cells` | `200` | Farthest unmeasured cell searched from the robot, in cells |
+| `~dump_maps` | `false` | Write `map_with_goals.txt` on every request, goals marked `8` |
+| `~dump_dir` | `.` | Folder for that file |
 
 ### Build and smoke test from the host
 

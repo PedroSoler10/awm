@@ -84,3 +84,32 @@ Each session appends one section here before it commits: what changed, what was 
 - `awm.launch` does not start `map_processing` yet (not asked in this task).
 
 **Open for Task 4.** `/safe_map` has the same header (frame, stamp of the source map) as `/map`. Free cells are exactly 0; caution is 50; unknown is -1.
+
+## Task 4: points_identification → /goal_points service (2026-10-22)
+
+**Changed.**
+- `srv/GoalPoints.srv` as in the task (constants `EXPLORATION`/`MEASUREMENT`/`FUSION`, `mode`, `num`; response `geometry_msgs/Point[] points`). `generate_messages(DEPENDENCIES geometry_msgs)`.
+- `grid.h/.cpp`: new `struct GridCell {x, y}` and `findNearestCells(grid, x0, y0, wanted, max_radius, n, &out, angles_deg = nullptr)` (n = 0 collects all, no duplicate cells, closest first). `findNearestCell` is now a call with n = 1, same result and angle; its 5 tests pass unchanged.
+- `frontiers.h/.cpp`: `findFrontierCells` (map 0, safe_map 0, any of the 8 neighbours unknown; false if the maps differ in size), `clusterFrontiers` (BFS, 8-connectivity, filters by `min_cluster_size`, hash-set of cell keys, no VLAs), `frontierGoals` (cell nearest each centroid, stable sort by distance to the robot). All in grid cells.
+- `src/nodes/points_identification.cpp` rewritten: `/map`, `/safe_map`, `/measure_map` kept as shared `ConstPtr`; pose from `awm::RobotPose` at request time; `/goal_points`. Bad mode → `ROS_WARN` + `false`. Missing maps/pose → empty list + `ROS_WARN_THROTTLE`. FUSION treats a missing `/measure_map` as "nothing to measure". Params `~min_cluster_size` 5, `~search_limit_cells` 200, `~dump_maps` false, `~dump_dir` ".". The old file (prototype code, `fn*` helpers, dead task-map code) is gone.
+- `map_dump`: second overload `writeMapText(grid, path, marks)` draws `8` over the marked cells; used by `~dump_maps`. The first overload is unchanged.
+- `test/test_frontiers.cpp` (11 tests: boundary = one cluster, small cluster filtered, goals sorted, 3x3 diagonal check, caution/obstacle cells excluded, size mismatch, no aliasing across the grid edge, centroid goal is a real cell), 3 new tests in `test_grid.cpp`, 1 in `test_safe_map.cpp`.
+- `scripts/check_format.sh`: points_identification removed from the exclusions. README: contents list and a "Goal points service" section.
+
+**Verified.**
+- `scripts/container_build.sh --test`: pass, 78 entries, 0 errors, 0 failures.
+- `scripts/check_format.sh`: clean.
+- `KEEP_RUNNING=1 scripts/smoke_test.sh`: PASS, 3 measurements in 32 s, first goal (169,191) angle 3 as in the baseline. Then `map_processing` and `points_identification _dump_maps:=true` via `docker exec -d`: `rosservice call /goal_points "{mode: 1, num: 5}"` returned 5 points inside the map; `num: 0` gave 14 (one per cluster). Mode 2 gave `[]` with the warning "NO /measure_map YET" until brain published its next measure map, then returned 5 points (2193 with `num: 0`, bounded by `~search_limit_cells`); mode 3 gave exploration goals before that and measurement goals after. Mode 9 → `ERROR: service ... responded with an error` and the warning. `/safe_map/info` equals `/map/info`. `map_with_goals.txt` was written with 8s. Sim stopped afterwards.
+- Not run: `~min_cluster_size` / `~search_limit_cells` other than the defaults; a real map large enough to time the service call.
+
+**Deviations.**
+- `findNearestCells` has an optional `angles_deg` out-param (the task lists none): `findNearestCell` must still return its angle. It returns `bool` (found any).
+- The `map_dump` overload with marks was not in the task; `~dump_maps` needs it. The old node wrote the symbol and an extra `8`; now the 8 replaces the symbol.
+- `getGoalPoints` has `// NOLINT(runtime/references)`: `advertiseService` requires non-const references.
+- Frontier "free" is `map == 0` as the task says. gmapping only publishes 0/100/-1, but a map with other low values (e.g. 10) would give no frontiers.
+
+**Open for Task 5/6.**
+- `brain` publishes `/measure_map` unlatched and only after each measurement, so a service started later has none until the next one (see Task 2's note). Latching it would fix that.
+- MEASUREMENT returns the nearest cells, which are mostly neighbours of each other (5 goals within about 0.4 m). The caller should use the first one, or ask for more and filter.
+- The ring sweep samples 360 angles, so with `num: 0` it can skip cells at distances over about 57 cells.
+- `awm.launch` does not start `map_processing` or `points_identification` yet (Task 6).

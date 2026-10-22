@@ -133,6 +133,21 @@ TEST(MapDump, WritesSymbolsTopRowFirst) {
   std::remove(path.c_str());
 }
 
+TEST(MapDump, DrawsMarksOverCells) {
+  nav_msgs::OccupancyGrid map;
+  map.info.width = 3;
+  map.info.height = 2;
+  map.data = {0, 50, 100, -1, 0, 0};
+  const std::string path = ::testing::TempDir() + "awm_map_dump_marks_test.txt";
+  // (2, 0) is occupied and (0, 1) unknown: the mark wins. (7, 7) is outside and ignored.
+  ASSERT_TRUE(awm::writeMapText(map, path, {{2, 0}, {0, 1}, {7, 7}}));
+  std::ifstream file(path);
+  std::stringstream text;
+  text << file.rdbuf();
+  EXPECT_EQ("8\t \t \t\n \t+\t8\t\n", text.str());
+  std::remove(path.c_str());
+}
+
 TEST(MapDump, FailsOnBadPath) {
   EXPECT_FALSE(awm::writeMapText(nav_msgs::OccupancyGrid(), "/nonexistent_dir/x.txt"));
 }

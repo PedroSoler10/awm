@@ -8,7 +8,7 @@
 
 /*
  * Text dump of a grid, one character per cell, for looking at a map in a terminal or a file.
- *   *  occupied (>= 90)    +  caution (>= 50)    ·  unknown    (space)  free
+ *   *  occupied (>= 90)    +  caution (>= 50)    ·  unknown    (space)  free    8  marked cell
  * The top row of the file is the highest y, so the picture has the same orientation as in RViz.
  */
 
@@ -18,11 +18,19 @@
 #include <nav_msgs/OccupancyGrid.h>
 
 #include <string>
+#include <vector>
+
+#include "awm/grid.h"
 
 namespace awm {
 
 // Writes the grid to path, replacing the file. Returns false if the file cannot be opened.
 bool writeMapText(const nav_msgs::OccupancyGrid& grid, const std::string& path);
+
+// The same, drawing an 8 over each cell in marks (for example the goals just computed). Marks
+// outside the grid are ignored.
+bool writeMapText(const nav_msgs::OccupancyGrid& grid, const std::string& path,
+                  const std::vector<GridCell>& marks);
 
 }  // namespace awm
 

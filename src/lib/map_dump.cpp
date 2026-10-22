@@ -10,16 +10,28 @@
 
 #include <cstddef>
 #include <fstream>
+#include <unordered_set>
 
 namespace awm {
 
 bool writeMapText(const nav_msgs::OccupancyGrid& grid, const std::string& path) {
+  return writeMapText(grid, path, {});
+}
+
+bool writeMapText(const nav_msgs::OccupancyGrid& grid, const std::string& path,
+                  const std::vector<GridCell>& marks) {
   std::ofstream file(path);
   if (!file) return false;
+  std::unordered_set<std::size_t> marked;
+  for (const GridCell& m : marks) {
+    if (cell(grid, m.x, m.y) != nullptr) marked.insert(m.y * grid.info.width + m.x);
+  }
   for (int y = static_cast<int>(grid.info.height) - 1; y >= 0; y--) {
     for (std::size_t x = 0; x < grid.info.width; x++) {
       const int value = grid.data[y * grid.info.width + x];
-      if (value >= 90)
+      if (marked.count(y * grid.info.width + x) > 0)
+        file << "8\t";
+      else if (value >= 90)
         file << "*\t";
       else if (value >= 50)
         file << "+\t";

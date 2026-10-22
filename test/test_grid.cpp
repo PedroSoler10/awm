@@ -11,6 +11,7 @@
 #include <nav_msgs/OccupancyGrid.h>
 
 #include <cstdint>
+#include <vector>
 
 #include "awm/grid.h"
 
@@ -173,6 +174,40 @@ TEST(Grid, FindNearestCellFalseWhenNone) {
   *awm::cell(&grid, 25, 10) = -1;
   EXPECT_FALSE(awm::findNearestCell(grid, 10, 10, -1, 14, &x, &y, &angle));
   EXPECT_TRUE(awm::findNearestCell(grid, 10, 10, -1, 15, &x, &y, &angle));
+}
+
+TEST(Grid, FindNearestCellsReturnsClosestFirstWithoutDuplicates) {
+  nav_msgs::OccupancyGrid grid = makeGrid(30, 30, 100);
+  *awm::cell(&grid, 10, 10) = -1;  // The start cell itself: found at d = 0 for every angle.
+  *awm::cell(&grid, 10, 15) = -1;  // 5 cells away.
+  *awm::cell(&grid, 20, 10) = -1;  // 10 cells away.
+  std::vector<awm::GridCell> cells;
+  std::vector<int> angles;
+  ASSERT_TRUE(awm::findNearestCells(grid, 10, 10, -1, 200, 0, &cells, &angles));
+  ASSERT_EQ(cells.size(), 3u);
+  ASSERT_EQ(angles.size(), 3u);
+  EXPECT_EQ(cells[0].x, 10);
+  EXPECT_EQ(cells[0].y, 10);
+  EXPECT_EQ(cells[1].x, 10);
+  EXPECT_EQ(cells[1].y, 15);
+  EXPECT_EQ(cells[2].x, 20);
+  EXPECT_EQ(cells[2].y, 10);
+}
+
+TEST(Grid, FindNearestCellsStopsAtN) {
+  nav_msgs::OccupancyGrid grid = makeGrid(30, 30, -1);
+  std::vector<awm::GridCell> cells;
+  ASSERT_TRUE(awm::findNearestCells(grid, 15, 15, -1, 200, 5, &cells));
+  EXPECT_EQ(cells.size(), 5u);
+  ASSERT_TRUE(awm::findNearestCells(grid, 15, 15, -1, 200, 1, &cells));
+  EXPECT_EQ(cells.size(), 1u);  // Cleared first.
+}
+
+TEST(Grid, FindNearestCellsFalseWhenNone) {
+  nav_msgs::OccupancyGrid grid = makeGrid(30, 30, 100);
+  std::vector<awm::GridCell> cells = {{1, 1}};
+  EXPECT_FALSE(awm::findNearestCells(grid, 10, 10, -1, 200, 3, &cells));
+  EXPECT_TRUE(cells.empty());
 }
 
 }  // namespace

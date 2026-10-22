@@ -18,8 +18,15 @@
 #include <nav_msgs/OccupancyGrid.h>
 
 #include <cstdint>
+#include <vector>
 
 namespace awm {
+
+// A cell of a grid: x = column, y = row.
+struct GridCell {
+  int x;
+  int y;
+};
 
 // World position (metres) -> grid cell (x = column, y = row), rounded to the nearest cell.
 void worldToGrid(const nav_msgs::OccupancyGrid& grid, const geometry_msgs::Pose& pose, int* x,
@@ -49,6 +56,14 @@ void inflate(const nav_msgs::OccupancyGrid& source, int threshold, int radius_ce
 // there is no such cell within max_radius_cells.
 bool findNearestCell(const nav_msgs::OccupancyGrid& grid, int x0, int y0, std::int8_t wanted_value,
                      int max_radius_cells, int* x, int* y, int* angle_deg);
+
+// The same ring search, collecting up to n different cells equal to wanted_value, closest first
+// (n = 0 collects them all). *out is cleared first; angles_deg, if not null, receives the angle
+// each cell was found at. Returns false if no cell was found. The sweep samples 360 angles per
+// circle, so on circles larger than about 57 cells it can skip cells between two samples.
+bool findNearestCells(const nav_msgs::OccupancyGrid& grid, int x0, int y0, std::int8_t wanted_value,
+                      int max_radius_cells, int n, std::vector<GridCell>* out,
+                      std::vector<int>* angles_deg = nullptr);
 
 }  // namespace awm
 
