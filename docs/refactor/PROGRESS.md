@@ -35,3 +35,30 @@ Each session appends one section here before it commits: what changed, what was 
 **Deviations.** None. `package.xml` keeps `message_generation`, still needed for `GoalPoints.srv`.
 
 **Open for Task 2.** The empty `msg/` directory is gone; nothing else references it.
+
+## Task 2: Shared library, package layout, brain on top of it (2026-10-22)
+
+**Changed.**
+- Layout: `git mv` of the 4 nodes to `src/nodes/` (only `brain.cpp` changed content). New `include/awm/` and `src/lib/` (library `awm_core`, namespace `awm`), `test/`.
+- `grid.h/.cpp`: `worldToGrid`, `gridToWorld`, `cell` (const and non-const), `markDisk`, `inflate` (sets 100), `findNearestCell` (same d = 0..max, 0→359° sweep; returns the angle in degrees). Logic copied from brain's `fn*` helpers.
+- `robot_pose.h/.cpp`: `RobotPose` owns `tf2_ros::Buffer` then `TransformListener` (correct order). `lookup()` is `fnReadScanPose` without the publish: stamp 0, same `ERROR WITH SCAN POSE` warning, stamps the result with `now()`, leaves `*out` unchanged on failure.
+- `measure_map.h/.cpp`: `kBlocked`/`kMeasured`/`kToMeasure`, `MeasureMapParams`, `updateMeasureMap` (body of `fnUpdateMeasureMap` without stamp and publish, so it runs without ROS time), `writeMeasurementFile(dir, pose, &file_name)`. The extra `file_name` out-param keeps brain's log line `MEASURE DONE: <name>` exactly as before.
+- `src/nodes/brain.cpp`: uses the library, no `fn` prefix (`control`, `startMeasuring`, `measure`, `updateMeasureMap`, `pubGoal`, `readScanPose`, `goalFinished`). Private params with the old defaults: `~measure_duration_s` 3.0, `~measure_radius_m` 0.5, `~inflate_radius_cells` 6, `~search_limit_cells` 200, `~occupied_threshold` 90, plus `~output_dir` ".". Topics, queue sizes and log texts unchanged.
+- `CMakeLists.txt`: C++14, `include_directories(include ...)`, `add_library(awm_core ...)` with the 3 sources listed, every node built from `src/nodes/<n>.cpp` and linked to `awm_core`, `catkin_package(INCLUDE_DIRS include LIBRARIES awm_core ...)`, install of library and headers, `catkin_add_gtest` for `test_grid` and `test_measure_map`. `package.xml`: `<test_depend>rosunit</test_depend>`.
+- Tests (15): round trip and rounding of world/grid, `cell` out of bounds (both versions), `markDisk` radius / keep value / border clipping, `inflate` keeps measured cells and ignores the threshold value, `findNearestCell` closest / sweep order / distance 0 / none / limit, `updateMeasureMap` first update / keeps measured cells / reset after resize / margin skips measured cells.
+- `scripts/check_format.sh`: all tracked C++ under `src/ include/ test/`, excluding `map_processing.cpp` (Task 3), `points_identification.cpp` (Task 4), `brainT.cpp` (Task 5). `CPPLINT.cfg`: `root=include`, so header guards are `AWM_<NAME>_H_`.
+- Docs: README contents list, brain parameter table, gdb example names, VS Code breakpoint path; `scripts/debug_brain.sh` example names (default breakpoint was already `Brain::control`); `docs/CONFIGURATION.md` include order (package headers last, as clang-format sorts them) and what the style check covers.
+
+**Verified.**
+- `scripts/container_build.sh --test`: pass. All 4 executables and the 2 test binaries build; `catkin_test_results`: 0 errors, 0 failures (it reports 30 entries for the 15 tests).
+- `scripts/smoke_test.sh`: PASS, 3 measurements in 48 s. Same node list as the baseline, no `process has died` or `terminate`. Goals: (169,191) angle 3, (168,201) angle 88, (160,207) angle 139: the first equals the baseline, the others match Task 1's run within one cell (gmapping variation). Measurement files still land in `/root/.ros`.
+- `scripts/check_format.sh`: clean.
+- Not run: `~output_dir` set to another folder (only the default was exercised by the smoke test).
+
+**Deviations.**
+- `writeMeasurementFile` has a third out-param `file_name` (the task names only `dir, pose`), needed to keep the log text identical.
+- `/measure_map` stays not latched: the node-pattern rule says map publishers are latched, but this task requires brain's behaviour to stay the same and does not name that change. Worth doing in Task 6 or whenever brain's behaviour may change.
+
+**Open for Task 3.**
+- `OccupancyGrid::info.resolution` is `float32` (0.05f ≈ 0.0500000007), so a cell exactly at `radius_m` is outside `markDisk` (e.g. 0.1 m = 2 cells excludes the 2-cell ring). Same as the baseline; the tests use 0.11 m. Keep it in mind for safe-map distances.
+- `awm_core` links all of `${catkin_LIBRARIES}`; fine for now.

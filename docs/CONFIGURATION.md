@@ -14,14 +14,14 @@ The style follows the [ROS C++ Style Guide](http://wiki.ros.org/CppStyleGuide), 
 |---|---|---|
 | `.clang-format` | clang-format | Indentation, braces, line length, include sorting |
 | `CPPLINT.cfg` | cpplint | Maximum line length |
-| `scripts/check_format.sh` | Command line | Runs both tools over the tracked C++ files |
+| `scripts/check_format.sh` | Command line | Runs both tools over the tracked C++ files in `src/`, `include/` and `test/` (nodes not cleaned up yet are excluded, see the script) |
 
 The key rules:
 
 - **Indentation:** 2 spaces. No tabs.
 - **Braces:** the opening `{` stays at the end of the line, as in `class Brain {`.
 - **Line length:** at most 100 characters. Both tools use the same limit.
-- **Include order:** `.h` headers (ROS, TF2, and other C headers) come first, sorted alphabetically. C++ standard library headers without `.h` (`<string>`, `<cmath>`) come after, in their own block.
+- **Include order:** `.h` headers (ROS, TF2, and other C headers) come first, sorted alphabetically. C++ standard library headers without `.h` (`<string>`, `<cmath>`) come after, in their own block. Headers of this package (`"awm/grid.h"`) come last, in their own block; a library `.cpp` includes its own header first.
 - **Whitespace:** no trailing spaces, and one blank line between logical blocks.
 - **Comments:** explain *why* a decision was made, not what the code does.
 

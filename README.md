@@ -4,7 +4,9 @@ ROS Noetic nodes, interfaces and launch files for the AWM project, running a Tur
 
 ## Contents
 
-- `src/`: C++ nodes (`brain`, `brainT`, `map_processing`, `points_identification`, ...).
+- `src/nodes/`: C++ nodes, one executable per file (`brain`, `brainT`, `map_processing`, `points_identification`).
+- `include/awm/`, `src/lib/`: the `awm_core` library shared by the nodes (grid helpers, robot pose from tf, measure map).
+- `test/`: unit tests of `awm_core` (gtest, no roscore needed; run with `scripts/container_build.sh --test`).
 - `srv/`: custom interface (`GoalPoints.srv`).
 - `launch/awm.launch`: single launch file for the simulation or the real robot, with a switch for each module (see [Launch options](#launch-options)).
 - `Dockerfile`: builds an image with every dependency already installed.
@@ -292,6 +294,17 @@ roslaunch awm awm.launch brain:=false
 rosrun awm brain
 ```
 
+`brain` reads these private parameters (set them with `_name:=value` after `rosrun awm brain`):
+
+| Parameter | Default | Meaning |
+|---|---|---|
+| `~measure_duration_s` | `3.0` | Time standing still per measurement |
+| `~measure_radius_m` | `0.5` | Cells this close to the robot count as measured |
+| `~inflate_radius_cells` | `6` | Safety margin around obstacles, in cells |
+| `~search_limit_cells` | `200` | Farthest goal searched from the robot, in cells |
+| `~occupied_threshold` | `90` | Occupancy above this is an obstacle |
+| `~output_dir` | `.` | Folder for the measurement files (`.` is the working directory, `~/.ros` under roslaunch) |
+
 ### Build and smoke test from the host
 
 When the VS Code dev container exists (see [docs/CONFIGURATION.md](docs/CONFIGURATION.md)), two scripts use it from a host terminal. They find the container by its VS Code label and start it if it is stopped. They never rebuild the image.
@@ -338,7 +351,7 @@ Unpause with `rosservice call /gazebo/unpause_physics`. Pausing stops `/clock`, 
 scripts/debug_brain.sh
 ```
 
-It starts `brain` under gdb and stops at `Brain::control`. Pass other functions to stop at them: `scripts/debug_brain.sh Brain::fnPubGoal Brain::fnMeasure`.
+It starts `brain` under gdb and stops at `Brain::control`. Pass other functions to stop at them: `scripts/debug_brain.sh Brain::pubGoal Brain::measure`, or library functions such as `awm::findNearestCell`.
 
 gdb may stop on the function's opening line, before `this` is set, so `print state_` fails with "Cannot access memory". Type `next` once and it works.
 
@@ -358,7 +371,7 @@ gdb may stop on the function's opening line, before `this` is set, so `print sta
 
 1. Install the Dev Containers extension and run **Dev Containers: Reopen in Container**. If the container was already built, run **Dev Containers: Rebuild Container** once, so gdb and the debugging permissions are included.
 2. Run the task **sim without brain** (Terminal > Run Task), and optionally **pause sim**.
-3. Click left of a line number in `src/brain.cpp` to set a breakpoint.
+3. Click left of a line number in `src/nodes/brain.cpp` (or a library file in `src/lib/`) to set a breakpoint.
 4. Press **F5** with **Debug brain (launch)** selected. It builds in Debug mode, starts `brain` and stops at your breakpoint. **Debug brain (attach)** connects to a `brain` that `roslaunch` already started.
 
 Use the toolbar (F10 next, F11 step into, Shift+F11 finish, F5 continue), the **Variables**, **Watch** and **Call Stack** panels, or type `-exec print x` in the Debug Console. Right-click a breakpoint to add a condition or a logpoint.

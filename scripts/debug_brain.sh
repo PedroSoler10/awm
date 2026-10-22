@@ -6,7 +6,7 @@
 #
 # Each argument is a function to stop at (default: Brain::control). Examples:
 #   scripts/debug_brain.sh
-#   scripts/debug_brain.sh Brain::fnPubGoal Brain::fnMeasure
+#   scripts/debug_brain.sh Brain::pubGoal Brain::measure awm::findNearestCell
 #
 # Before it, in other terminals:
 #   1. catkin_make -DCMAKE_BUILD_TYPE=Debug      (once, so gdb can show variables)

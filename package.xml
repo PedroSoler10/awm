@@ -37,6 +37,9 @@
   <depend>tf2_geometry_msgs</depend>   <!-- tf2::toMsg -->
   <depend>tf2_ros</depend>             <!-- transform listener and buffer -->
 
+  <!-- Needed only for the unit tests in test/ (catkin_add_gtest). -->
+  <test_depend>rosunit</test_depend>
+
   <!-- Needed to run, not to build. Used by launch/awm.launch to start the
        TurtleBot3 simulation, navigation and mapping. -->
   <exec_depend>message_runtime</exec_depend>      <!-- runs the generated messages -->

@@ -1,0 +1,89 @@
+/*
+ * Copyright (c) 2021, Pedro Soler
+ * All rights reserved.
+ *
+ * This file is part of awm and is licensed under the BSD 3-Clause License.
+ * See the LICENSE file at the root of this repository for the full text.
+ */
+
+#include "awm/grid.h"
+
+#include <cmath>
+#include <cstddef>
+
+namespace awm {
+
+void worldToGrid(const nav_msgs::OccupancyGrid& grid, const geometry_msgs::Pose& pose, int* x,
+                 int* y) {
+  *x = static_cast<int>(
+      std::round((pose.position.x - grid.info.origin.position.x) / grid.info.resolution));
+  *y = static_cast<int>(
+      std::round((pose.position.y - grid.info.origin.position.y) / grid.info.resolution));
+}
+
+void gridToWorld(const nav_msgs::OccupancyGrid& grid, int x, int y, double* world_x,
+                 double* world_y) {
+  *world_x = x * grid.info.resolution + grid.info.origin.position.x;
+  *world_y = y * grid.info.resolution + grid.info.origin.position.y;
+}
+
+std::int8_t* cell(nav_msgs::OccupancyGrid* grid, int x, int y) {
+  if (x < 0 || y < 0 || x >= static_cast<int>(grid->info.width) ||
+      y >= static_cast<int>(grid->info.height))
+    return nullptr;
+  return &grid->data[static_cast<std::size_t>(y) * grid->info.width + x];
+}
+
+const std::int8_t* cell(const nav_msgs::OccupancyGrid& grid, int x, int y) {
+  if (x < 0 || y < 0 || x >= static_cast<int>(grid.info.width) ||
+      y >= static_cast<int>(grid.info.height))
+    return nullptr;
+  return &grid.data[static_cast<std::size_t>(y) * grid.info.width + x];
+}
+
+void markDisk(nav_msgs::OccupancyGrid* grid, int cx, int cy, double radius_m, std::int8_t value,
+              std::int8_t keep_value) {
+  const int radius = static_cast<int>(std::ceil(radius_m / grid->info.resolution));
+  for (int y = cy - radius; y <= cy + radius; y++) {
+    for (int x = cx - radius; x <= cx + radius; x++) {
+      std::int8_t* c = cell(grid, x, y);
+      const double distance = std::hypot(x - cx, y - cy) * grid->info.resolution;
+      if (c != nullptr && distance <= radius_m && *c != keep_value) *c = value;
+    }
+  }
+}
+
+void inflate(const nav_msgs::OccupancyGrid& source, int threshold, int radius_cells,
+             nav_msgs::OccupancyGrid* target, std::int8_t keep_value) {
+  for (std::size_t k = 0; k < source.data.size(); k++) {
+    if (source.data[k] <= threshold) continue;
+    const int x = k % source.info.width;
+    const int y = k / source.info.width;
+    for (int ny = y - radius_cells; ny <= y + radius_cells; ny++) {
+      for (int nx = x - radius_cells; nx <= x + radius_cells; nx++) {
+        std::int8_t* c = cell(target, nx, ny);
+        if (c != nullptr && *c != keep_value) *c = 100;
+      }
+    }
+  }
+}
+
+bool findNearestCell(const nav_msgs::OccupancyGrid& grid, int x0, int y0, std::int8_t wanted_value,
+                     int max_radius_cells, int* x, int* y, int* angle_deg) {
+  for (int d = 0; d <= max_radius_cells; d++) {
+    for (int a = 0; a < 360; a++) {
+      const double angle = a * M_PI / 180;
+      const int cx = x0 + static_cast<int>(std::round(d * std::cos(angle)));
+      const int cy = y0 + static_cast<int>(std::round(d * std::sin(angle)));
+      const std::int8_t* c = cell(grid, cx, cy);
+      if (c == nullptr || *c != wanted_value) continue;
+      *x = cx;
+      *y = cy;
+      *angle_deg = a;
+      return true;
+    }
+  }
+  return false;
+}
+
+}  // namespace awm

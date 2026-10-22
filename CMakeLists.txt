@@ -11,6 +11,10 @@ cmake_minimum_required(VERSION 3.0.2)
 # namespace of the messages we generate (for example awm/GoalPoints.h).
 project(awm)
 
+# ROS Noetic targets C++14.
+set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
 # ---------------------------------------------------------------------------
 # 1. Build dependencies
 # ---------------------------------------------------------------------------
@@ -53,7 +57,11 @@ generate_messages()
 # ---------------------------------------------------------------------------
 # CATKIN_DEPENDS lists the packages that the headers and messages of awm use.
 # Other packages that depend on awm get these automatically.
+# INCLUDE_DIRS and LIBRARIES export the awm_core library (headers in
+# include/awm/) to packages that depend on awm.
 catkin_package(
+  INCLUDE_DIRS include
+  LIBRARIES awm_core
   CATKIN_DEPENDS
     actionlib_msgs
     geometry_msgs
@@ -68,14 +76,27 @@ catkin_package(
 
 # Header search paths for every target in this package.
 include_directories(
+  include
   ${catkin_INCLUDE_DIRS}
   ${Boost_INCLUDE_DIRS}
 )
 
 # ---------------------------------------------------------------------------
-# 4. Programs
+# 4. Library
 # ---------------------------------------------------------------------------
-# Each name below is built from src/<name>.cpp.
+# Code shared by the nodes (namespace awm). Headers in include/awm/.
+add_library(awm_core
+  src/lib/grid.cpp
+  src/lib/measure_map.cpp
+  src/lib/robot_pose.cpp
+)
+add_dependencies(awm_core ${catkin_EXPORTED_TARGETS})
+target_link_libraries(awm_core ${catkin_LIBRARIES})
+
+# ---------------------------------------------------------------------------
+# 5. Programs
+# ---------------------------------------------------------------------------
+# Each name below is built from src/nodes/<name>.cpp.
 set(AWM_EXECUTABLES
   brain
   brainT
@@ -84,7 +105,7 @@ set(AWM_EXECUTABLES
 )
 
 foreach(target ${AWM_EXECUTABLES})
-  add_executable(${target} src/${target}.cpp)
+  add_executable(${target} src/nodes/${target}.cpp)
 
   # Wait for the generated message headers (such as awm/GoalPoints.h)
   # before compiling this target.
@@ -93,19 +114,42 @@ foreach(target ${AWM_EXECUTABLES})
     ${catkin_EXPORTED_TARGETS}
   )
 
-  # Link the ROS libraries and the Boost library.
+  # Link the shared library, the ROS libraries and the Boost library.
   target_link_libraries(${target}
+    awm_core
     ${catkin_LIBRARIES}
     ${Boost_LIBRARIES}
   )
 endforeach()
 
 # ---------------------------------------------------------------------------
-# 5. Installation
+# 6. Unit tests
+# ---------------------------------------------------------------------------
+# Run with "catkin_make run_tests_awm". They test pure functions of awm_core,
+# so they need no roscore.
+if(CATKIN_ENABLE_TESTING)
+  foreach(test test_grid test_measure_map)
+    catkin_add_gtest(${test} test/${test}.cpp)
+    target_link_libraries(${test} awm_core ${catkin_LIBRARIES})
+  endforeach()
+endif()
+
+# ---------------------------------------------------------------------------
+# 7. Installation
 # ---------------------------------------------------------------------------
 # "rosrun awm <name>" and "roslaunch awm ..." find files installed here.
 install(TARGETS ${AWM_EXECUTABLES}
   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
+
+install(TARGETS awm_core
+  ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+  LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+  RUNTIME DESTINATION ${CATKIN_GLOBAL_BIN_DESTINATION}
+)
+
+install(DIRECTORY include/${PROJECT_NAME}/
+  DESTINATION ${CATKIN_PACKAGE_INCLUDE_DESTINATION}
 )
 
 install(DIRECTORY launch/
